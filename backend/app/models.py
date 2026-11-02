@@ -474,3 +474,81 @@ class User(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+
+
+class SchoolClass(Base):
+    """A class created within an institution and assigned to a teacher."""
+
+    __tablename__ = "classes"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "institution_id",
+            "name",
+            name="uq_classes_institution_name",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    institution_id = Column(
+        Integer,
+        ForeignKey("institutions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    name = Column(
+        String(100),
+        nullable=False,
+    )
+
+    teacher_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class ClassEnrollment(Base):
+    """Associates students with their enrolled classes."""
+
+    __tablename__ = "class_enrollments"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "class_id",
+            "student_id",
+            name="uq_class_enrollments_class_student",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    class_id = Column(
+        Integer,
+        ForeignKey("classes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    student_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    enrolled_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
