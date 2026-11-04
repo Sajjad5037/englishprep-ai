@@ -1,9 +1,46 @@
 import { useEffect, useRef, useState } from "react";
-
+import { authenticatedFetch } from "./api";
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
 ).replace(/\/$/, "");
+function getSubjectDisplayName(subject) {
+  const name = String(subject || "").trim();
 
+  if (name.toLowerCase() === "english language") {
+    return "English";
+  }
+
+  return name || "Other";
+}
+function getPublishedDateKey(value) {
+  if (!value) return "date-unavailable";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "date-unavailable";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatPublishedDate(dateKey) {
+  if (dateKey === "date-unavailable") {
+    return "Publication date unavailable";
+  }
+
+  const date = new Date(`${dateKey}T12:00:00`);
+
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
 export default function StudentDashboard({
   user,
   accessToken,
@@ -13,25 +50,67 @@ export default function StudentDashboard({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeExam, setActiveExam] = useState(null);
-const [attemptId, setAttemptId] = useState(null);
-const [examQuestions, setExamQuestions] = useState([]);
-const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-const currentQuestion = examQuestions[currentQuestionIndex];
+  const [attemptId, setAttemptId] = useState(null);
+  const [examQuestions, setExamQuestions] = useState([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  
+  const currentQuestion = examQuestions[currentQuestionIndex];
 
-const currentPassage =
-  currentQuestion?.passage ||
-  examQuestions.find((item) => item.passage)?.passage ||
-  null;
-const [answers, setAnswers] = useState({});
-const [examLoading, setExamLoading] = useState(false);
-const [examError, setExamError] = useState("");
-const [savingAnswer, setSavingAnswer] = useState(false);
-const [answerSaveStatus, setAnswerSaveStatus] = useState({});
-const autoSaveTimerRef = useRef(null);
+  const currentPassage =
+    currentQuestion?.passage ||
+    examQuestions.find((item) => item.passage)?.passage ||
+    null;
+  const [answers, setAnswers] = useState({});
+  const [examLoading, setExamLoading] = useState(false);
+  const [examError, setExamError] = useState("");
+  const [savingAnswer, setSavingAnswer] = useState(false);
+  const [answerSaveStatus, setAnswerSaveStatus] = useState({});
+  const autoSaveTimerRef = useRef(null);
 
-const [submittingAttempt, setSubmittingAttempt] = useState(false);
-const [currentResultIndex, setCurrentResultIndex] = useState(-1);
-const [submissionResults, setSubmissionResults] = useState(null);
+  const [submittingAttempt, setSubmittingAttempt] = useState(false);
+  const [currentResultIndex, setCurrentResultIndex] = useState(-1);
+  const [submissionResults, setSubmissionResults] = useState(null);
+  const [selectedSubject, setSelectedSubject] = useState(null);
+  const [selectedPublishedDate, setSelectedPublishedDate] = useState(null);
+const availableSubjects = Array.from(
+  new Set(
+    exams
+      .map((exam) => getSubjectDisplayName(exam.subject))
+      .filter(Boolean)
+  )
+).sort((a, b) => a.localeCompare(b));
+
+const selectedSubjectExams = exams.filter(
+  (exam) =>
+    getSubjectDisplayName(exam.subject) === selectedSubject
+);
+const examsByPublishedDate = selectedSubjectExams.reduce(
+  (groups, exam) => {
+    const dateKey = getPublishedDateKey(exam.published_at);
+
+    if (!groups[dateKey]) {
+      groups[dateKey] = [];
+    }
+
+    groups[dateKey].push(exam);
+
+    return groups;
+  },
+  {}
+);
+
+const sortedPublishedDates = Object.keys(
+  examsByPublishedDate
+).sort((a, b) => {
+  if (a === "date-unavailable") return 1;
+  if (b === "date-unavailable") return -1;
+
+  return b.localeCompare(a);
+});
+
+const selectedDateExams = selectedPublishedDate
+  ? examsByPublishedDate[selectedPublishedDate] || []
+  : [];
 
   useEffect(() => {
     async function loadExams() {
@@ -39,13 +118,10 @@ const [submissionResults, setSubmissionResults] = useState(null);
       setError("");
 
       try {
-        const response = await fetch(
+        const response = await authenticatedFetch(
           `${API_BASE_URL}/api/exams/student/available`,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          }
+          {},
+          accessToken
         );
 
         const data = await response.json().catch(() => ({}));
@@ -77,13 +153,10 @@ async function viewResults(exam) {
   setError("");
 
   try {
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `${API_BASE_URL}/api/exams/student/attempts/${exam.attempt_id}/results`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
+      {},
+      accessToken
     );
 
     const data = await response.json().catch(() => ({}));
@@ -113,20 +186,20 @@ async function startExam(exam) {
 
   try {
     // Prevent opening an already submitted exam.
-    if (exam.attempt_status === "submitted") {
+    if (
+      exam.attempt_status === "submitted" &&
+      !exam.retest_allowed
+    ) {
       throw new Error(
-        "You have already submitted this exam. Please view your results."
+        "You have already submitted this exam. Your teacher must allow a retest."
       );
     }
 
     // Retrieve the published exam and its questions.
-    const examResponse = await fetch(
+    const examResponse = await authenticatedFetch(
       `${API_BASE_URL}/api/exams/student/${exam.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
+      {},
+      accessToken
     );
 
     const examData = await examResponse.json().catch(() => ({}));
@@ -138,14 +211,12 @@ async function startExam(exam) {
     }
 
     // Start a new attempt or resume the existing one.
-    const attemptResponse = await fetch(
+    const attemptResponse = await authenticatedFetch(
       `${API_BASE_URL}/api/exams/student/${exam.id}/attempts`,
       {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
+      },
+      accessToken
     );
 
     const attemptData = await attemptResponse.json().catch(() => ({}));
@@ -202,19 +273,20 @@ async function saveStudentAnswer(
   }));
 
   try {
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `${API_BASE_URL}/api/exams/student/attempts/${attemptId}/answers/${questionId}`,
       {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           answer_text: answerText,
         }),
-      }
+      },
+      accessToken
     );
+    
 
     const data = await response.json().catch(() => ({}));
 
@@ -273,14 +345,12 @@ async function saveStudentAnswer(
     }
 
     // Submit the attempt after all answers are saved.
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `${API_BASE_URL}/api/exams/student/attempts/${attemptId}/submit`,
       {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
+      },
+      accessToken
     );
 
     const data = await response.json().catch(() => ({}));
@@ -648,29 +718,26 @@ async function saveStudentAnswer(
       marginTop: "24px",
     }}
   >
-    {/* LEFT: Reading passage */}
-    <section
-      style={{
-        padding: "22px",
-        borderRadius: "12px",
-        background: "#f5f7fb",
-        border: "1px solid #e2e8f0",
-        lineHeight: 1.8,
-      }}
-    >
-      <h3 style={{ marginTop: 0 }}>Reading passage</h3>
+    {/* LEFT: Reading passage - show only when available */}
+    {currentPassage && (
+      <section
+        style={{
+          padding: "22px",
+          borderRadius: "12px",
+          background: "#f5f7fb",
+          border: "1px solid #e2e8f0",
+          lineHeight: 1.8,
+        }}
+      >
+        <h3 style={{ marginTop: 0 }}>Reading passage</h3>
 
-      {currentPassage ? (
-        <>
-          <h4>{currentPassage.title}</h4>
-          <div style={{ whiteSpace: "pre-wrap" }}>
-            {currentPassage.content}
-          </div>
-        </>
-      ) : (
-        <p>No reading passage is linked to this question.</p>
-      )}
-    </section>
+        <h4>{currentPassage.title}</h4>
+
+        <div style={{ whiteSpace: "pre-wrap" }}>
+          {currentPassage.content}
+        </div>
+      </section>
+    )}
 
     {/* RIGHT: One question at a time */}
     {currentQuestion && (
@@ -717,6 +784,81 @@ async function saveStudentAnswer(
         >
           Your answer
 
+          
+        {["multiple choice", "mcq"].includes(
+          String(currentQuestion.question_type || "").trim().toLowerCase()
+        ) ? (
+          <div style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
+            {Array.isArray(currentQuestion.options) &&
+            currentQuestion.options.length > 0 ? (
+              currentQuestion.options.map((option, index) => {
+                const optionText =
+                  typeof option === "string"
+                    ? option
+                    : option?.label || option?.text || option?.value || "";
+
+                const questionId = currentQuestion.question_id;
+                const isSelected = answers[questionId] === optionText;
+
+                return (
+                  <label
+                    key={index}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      padding: "14px",
+                      border: isSelected
+                        ? "2px solid #285b71"
+                        : "1px solid #dce4eb",
+                      borderRadius: "9px",
+                      background: isSelected ? "#f0f7fa" : "#ffffff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name={`question-${questionId}`}
+                      value={optionText}
+                      checked={isSelected}
+                      onChange={(event) => {
+                        const latestAnswer = event.target.value;
+
+                        setAnswers((previous) => ({
+                          ...previous,
+                          [questionId]: latestAnswer,
+                        }));
+
+                        setAnswerSaveStatus((previous) => ({
+                          ...previous,
+                          [questionId]: "unsaved",
+                        }));
+
+                        if (autoSaveTimerRef.current) {
+                          clearTimeout(autoSaveTimerRef.current);
+                        }
+
+                        autoSaveTimerRef.current = setTimeout(() => {
+                          saveStudentAnswer(questionId, latestAnswer);
+                        }, 1000);
+                      }}
+                      style={{
+                        width: "18px",
+                        height: "18px",
+                        flexShrink: 0,
+                        accentColor: "#285b71",
+                      }}
+                    />
+
+                    <span>{optionText}</span>
+                  </label>
+                );
+              })
+            ) : (
+              <p>No answer options are available for this question.</p>
+            )}
+          </div>
+        ) : (
           <textarea
             value={answers[currentQuestion.question_id] || ""}
             onChange={(event) => {
@@ -733,12 +875,10 @@ async function saveStudentAnswer(
                 [questionId]: "unsaved",
               }));
 
-              // Reset the previous autosave timer.
               if (autoSaveTimerRef.current) {
                 clearTimeout(autoSaveTimerRef.current);
               }
 
-              // Save automatically one second after typing stops.
               autoSaveTimerRef.current = setTimeout(() => {
                 saveStudentAnswer(questionId, latestAnswer);
               }, 1000);
@@ -752,7 +892,6 @@ async function saveStudentAnswer(
                 autoSaveTimerRef.current = null;
               }
 
-              // Save immediately when the student leaves the answer box.
               saveStudentAnswer(questionId, latestAnswer);
             }}
             rows={8}
@@ -770,6 +909,8 @@ async function saveStudentAnswer(
               boxSizing: "border-box",
             }}
           />
+        )}
+
         </label>
 
         <button
@@ -888,18 +1029,25 @@ async function saveStudentAnswer(
     </div>
   </section>
 )}
-      {!activeExam && !submissionResults && (
-      <section
-        style={{
-          padding: "24px",
-          borderRadius: "12px",
-          background: "#ffffff",
-          boxShadow: "0 2px 10px #172c4010",
-        }}
-      >
-        <h2>Available exams</h2>
+      
+{!activeExam && !submissionResults && (
+  <section
+    style={{
+      padding: "24px",
+      borderRadius: "12px",
+      background: "#ffffff",
+      boxShadow: "0 2px 10px #172c4010",
+    }}
+  >
+    {selectedSubject === null ? (
+      <>
+        <h2>My Subjects</h2>
 
-        {loading && <p>Loading available exams...</p>}
+        <p style={{ color: "#64748b" }}>
+          Select a subject to view your exams and results.
+        </p>
+
+        {loading && <p>Loading subjects...</p>}
 
         {error && (
           <p role="alert" style={{ color: "#b42318" }}>
@@ -907,98 +1055,270 @@ async function saveStudentAnswer(
           </p>
         )}
 
-        {!loading && !error && exams.length === 0 && (
-          <p>
-            No published exams are currently available.
-          </p>
+        {!loading && !error && availableSubjects.length === 0 && (
+          <p>No subjects with published exams are currently available.</p>
         )}
 
-        {!loading &&
-          exams.map((exam) => (
-            <article
-              key={exam.id}
-              style={{
-                padding: "18px",
-                marginTop: "14px",
-                border: "1px solid #e2e8f0",
-                borderRadius: "10px",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>{exam.title}</h3>
-
-              <p>Subject: {exam.subject}</p>
-              <p>Level: {exam.level || "—"}</p>
-              <p>
-                Duration:{" "}
-                {exam.duration_minutes
-                  ? `${exam.duration_minutes} minutes`
-                  : "Not specified"}
-              </p>
-              
-{exam.attempt_status === "submitted" ? (
-  <div style={{ marginTop: "12px" }}>
-    {exam.evaluation_status === "completed" && (
-      <p style={{ fontWeight: 600, color: "#285b71" }}>
-        Your score:{" "}
-        {exam.evaluation_summary?.marks_awarded ?? 0}
-        {" / "}
-        {exam.evaluation_summary?.max_marks ?? 0}
-      </p>
-    )}
-
-    {exam.evaluation_status === "pending" && (
-      <p>Evaluation is pending.</p>
-    )}
-
-    {exam.evaluation_status === "failed" && (
-      <p style={{ color: "#b42318" }}>
-        Some answers could not be evaluated.
-      </p>
-    )}
-
-    <button
-            type="button"
-            onClick={() => viewResults(exam)}
-            disabled={examLoading}
-            style={{
-              padding: "10px 16px",
-              border: "none",
-              borderRadius: "8px",
-              background: "#285b71",
-              color: "#ffffff",
-              cursor: examLoading ? "wait" : "pointer",
-            }}
-          >
-            {examLoading ? "Loading results..." : "View Results"}
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => startExam(exam)}
-          disabled={examLoading}
+        <div
           style={{
-            marginTop: "12px",
-            padding: "10px 16px",
-            border: "none",
-            borderRadius: "8px",
-            background: "#285b71",
-            color: "#ffffff",
-            cursor: examLoading ? "wait" : "pointer",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+            gap: "20px",
+            marginTop: "24px",
           }}
         >
-          {examLoading
-            ? "Opening exam..."
-            : exam.attempt_status === "in_progress"
-              ? "Resume Exam"
-              : "Start Exam"}
-        </button>
-      )}
+          {availableSubjects.map((subject) => {
+            const subjectExams = exams.filter(
+              (exam) =>
+                getSubjectDisplayName(exam.subject) === subject
+            );
 
-            </article>
-          ))}
-      </section>
-      )}
+            const completedCount = subjectExams.filter(
+              (exam) => exam.attempt_status === "submitted"
+            ).length;
+
+            return (
+              <article
+                key={subject}
+                style={{
+                  padding: "24px",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "12px",
+                  background: "#ffffff",
+                }}
+              >
+                <h3 style={{ marginTop: 0 }}>{subject}</h3>
+
+                <p style={{ color: "#64748b" }}>
+                  {subjectExams.length} available exam(s)
+                </p>
+
+                <p style={{ color: "#64748b" }}>
+                  {completedCount} completed
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedSubject(subject)}
+                  style={{
+                    marginTop: "12px",
+                    padding: "11px 18px",
+                    border: "none",
+                    borderRadius: "8px",
+                    background: "#285b71",
+                    color: "#ffffff",
+                    cursor: "pointer",
+                  }}
+                >
+                  Open Subject →
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      </>
+    ) : (
+      <>
+        <button
+          type="button"
+          onClick={() => setSelectedSubject(null)}
+          style={{
+            marginBottom: "20px",
+            padding: "10px 16px",
+            border: "1px solid #dce4eb",
+            borderRadius: "8px",
+            background: "#ffffff",
+            color: "#285b71",
+            cursor: "pointer",
+          }}
+        >
+          ← Back to Subjects
+        </button>
+
+        <h2>{selectedSubject}</h2>
+
+                
+        {selectedPublishedDate === null ? (
+          <>
+            <h3>Published Dates</h3>
+
+            <p style={{ color: "#64748b" }}>
+              Select a publication date to view its exams.
+            </p>
+
+            {sortedPublishedDates.length === 0 && (
+              <p>No published exam dates are available.</p>
+            )}
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "16px",
+                marginTop: "20px",
+              }}
+            >
+              {sortedPublishedDates.map((dateKey) => {
+                const dateExams = examsByPublishedDate[dateKey] || [];
+
+                return (
+                  <article
+                    key={dateKey}
+                    style={{
+                      padding: "20px",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "10px",
+                    }}
+                  >
+                    <h3 style={{ marginTop: 0 }}>
+                      {formatPublishedDate(dateKey)}
+                    </h3>
+
+                    <p style={{ color: "#64748b" }}>
+                      {dateExams.length} exam(s)
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPublishedDate(dateKey)}
+                      style={{
+                        padding: "10px 16px",
+                        border: "none",
+                        borderRadius: "8px",
+                        background: "#285b71",
+                        color: "#ffffff",
+                        cursor: "pointer",
+                      }}
+                    >
+                      View Exams →
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setSelectedPublishedDate(null)}
+              style={{
+                marginBottom: "20px",
+                padding: "10px 16px",
+                border: "1px solid #dce4eb",
+                borderRadius: "8px",
+                background: "#ffffff",
+                color: "#285b71",
+                cursor: "pointer",
+              }}
+            >
+              ← Back to Published Dates
+            </button>
+
+            <h3>
+              Exams published on {formatPublishedDate(selectedPublishedDate)}
+            </h3>
+
+            {selectedDateExams.map((exam) => (
+              <article
+                key={exam.id}
+                style={{
+                  padding: "18px",
+                  marginTop: "14px",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "10px",
+                }}
+              >
+                <h3 style={{ marginTop: 0 }}>{exam.title}</h3>
+
+                <p>Level: {exam.level || "—"}</p>
+
+                <p>
+                  Duration:{" "}
+                  {exam.duration_minutes
+                    ? `${exam.duration_minutes} minutes`
+                    : "Not specified"}
+                </p>
+
+                {exam.attempt_status === "submitted" ? (
+                  <div style={{ marginTop: "12px" }}>
+                    {exam.evaluation_status === "completed" && (
+                      <p style={{ fontWeight: 600, color: "#285b71" }}>
+                        Your score:{" "}
+                        {exam.evaluation_summary?.marks_awarded ?? 0}
+                        {" / "}
+                        {exam.evaluation_summary?.max_marks ?? 0}
+                      </p>
+                    )}
+
+                    {exam.evaluation_status === "pending" && (
+                      <p>Evaluation is pending.</p>
+                    )}
+
+                    {exam.evaluation_status === "failed" && (
+                      <p style={{ color: "#b42318" }}>
+                        Some answers could not be evaluated.
+                      </p>
+                    )}
+
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "10px",
+                        flexWrap: "wrap",
+                        marginTop: "12px",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => viewResults(exam)}
+                        disabled={examLoading}
+                      >
+                        {examLoading ? "Loading results..." : "View Results"}
+                      </button>
+
+                      {exam.retest_allowed && (
+                        <button
+                          type="button"
+                          onClick={() => startExam(exam)}
+                          disabled={examLoading}
+                          style={{
+                            padding: "10px 16px",
+                            border: "none",
+                            borderRadius: "8px",
+                            background: "#285b71",
+                            color: "#ffffff",
+                            cursor: examLoading ? "wait" : "pointer",
+                          }}
+                        >
+                          {examLoading ? "Opening exam..." : "Retake Exam"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startExam(exam)}
+                    disabled={examLoading}
+                  >
+                    {examLoading
+                      ? "Opening exam..."
+                      : exam.attempt_status === "in_progress"
+                        ? "Resume Exam"
+                        : "Start Exam"}
+                  </button>
+                )}
+              </article>
+            ))}
+          </>
+        )}
+
+      </>
+    )}
+  </section>
+)}
+
     </main>
   );
 }

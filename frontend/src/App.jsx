@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import StudentDashboard from "./StudentDashboard";
 import PlatformOwnerDashboard from "./PlatformOwnerDashboard";
 import {
@@ -28,9 +28,9 @@ import AdminSetup from "./AdminSetup";
 import InstitutionAdminDashboard from "./InstitutionAdminDashboard";
 import TeacherDashboard from "./TeacherDashboard";
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
 ).replace(/\/$/, "");
-
+let sessionRestorePromise = null;
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
   { label: "Passages", icon: BookOpen },
@@ -83,7 +83,86 @@ function App() {
   const [accessToken, setAccessToken] = useState(null);
   const [activePage, setActivePage] = useState("Overview");
   const [search, setSearch] = useState("");
+  const [authLoading, setAuthLoading] = useState(true);
 
+  useEffect(() => {
+    let isActive = true;
+
+    if (!sessionRestorePromise) {
+      sessionRestorePromise = fetch(
+        `${API_BASE_URL}/api/auth/refresh`,
+        {
+          method: "POST",
+          credentials: "include",
+        }
+      )
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}));
+          return response.ok ? data : null;
+        })
+        .catch(() => null);
+    }
+
+    sessionRestorePromise
+      .then((data) => {
+        if (!isActive) return;
+
+        if (data?.access_token && data?.user) {
+          setAccessToken(data.access_token);
+          setUser(data.user);
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setAuthLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+  useEffect(() => {
+    function handleTokenRefreshed(event) {
+      const newToken = event.detail?.access_token;
+
+      if (newToken) {
+        setAccessToken(newToken);
+      }
+    }
+
+    function handleSessionExpired() {
+      sessionRestorePromise = null;
+
+      setUser(null);
+      setAccessToken(null);
+      setPassword("");
+      setActivePage("Overview");
+      setError("Your session has expired. Please sign in again.");
+    }
+
+    window.addEventListener(
+      "auth-token-refreshed",
+      handleTokenRefreshed
+    );
+
+    window.addEventListener(
+      "auth-session-expired",
+      handleSessionExpired
+    );
+
+    return () => {
+      window.removeEventListener(
+        "auth-token-refreshed",
+        handleTokenRefreshed
+      );
+
+      window.removeEventListener(
+        "auth-session-expired",
+        handleSessionExpired
+      );
+    };
+  }, []);
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
@@ -92,6 +171,7 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -127,17 +207,40 @@ function App() {
     }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+  try {
+    await fetch(`${API_BASE_URL}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (err) {
+    console.error("Logout request failed:", err);
+  } finally {
+    sessionRestorePromise = null;
     setUser(null);
     setAccessToken(null);
     setPassword("");
     setError("");
     setActivePage("Overview");
   }
+}
   const urlParams = new URLSearchParams(window.location.search);
 
     if (urlParams.has("setup_token")) {
       return <AdminSetup />;
+    }
+    if (authLoading) {
+      return (
+        <main className="login-page">
+          <section className="login-area">
+            <div className="login-card">
+              <p className="login-description">
+                Checking your existing session...
+              </p>
+            </div>
+          </section>
+        </main>
+      );
     }
 
   // Display the sign-in form until FastAPI verifies the credentials.

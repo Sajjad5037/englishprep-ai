@@ -22,6 +22,8 @@ const API_BASE_URL = (
 const navigationItems = [
   { label: "Overview", icon: LayoutDashboard },
   { label: "Teachers & Students", icon: Users },
+  { label: "Classes", icon: ClipboardList },
+  { label: "Subjects", icon: BookOpen },
   { label: "Student results", icon: BarChart3 },
 ];
 
@@ -197,6 +199,32 @@ const styles = `
 export default function InstitutionAdminDashboard({ user, accessToken, onLogout }) {
   const [activePage, setActivePage] = useState("Overview");
   const [members, setMembers] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [classSubjects, setClassSubjects] = useState([]);
+  const [enrollingSubjectId, setEnrollingSubjectId] = useState(null);
+  const [selectedSubjectStudentId, setSelectedSubjectStudentId] = useState("");
+  const [savingSubjectEnrollment, setSavingSubjectEnrollment] = useState(false);
+  const [editingClassSubjectId, setEditingClassSubjectId] = useState(null);
+  const [replacementTeacherId, setReplacementTeacherId] = useState("");
+  const [updatingClassSubjectTeacher, setUpdatingClassSubjectTeacher] = useState(false);
+  const [selectedClassForSubject, setSelectedClassForSubject] = useState("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [selectedSubjectTeacherId, setSelectedSubjectTeacherId] = useState("");
+  const [assigningClassSubject, setAssigningClassSubject] = useState(false);
+  const [loadingSubjects, setLoadingSubjects] = useState(false);
+  const [subjectsError, setSubjectsError] = useState("");
+  const [newSubjectName, setNewSubjectName] = useState("");
+  const [creatingSubject, setCreatingSubject] = useState(false);
+  const [classesLoading, setClassesLoading] = useState(false);
+  const [classesError, setClassesError] = useState("");
+  const [selectedClassId, setSelectedClassId] = useState(null);
+  const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [enrollingStudent, setEnrollingStudent] = useState(false);
+  const [showCreateClass, setShowCreateClass] = useState(false);
+  const [className, setClassName] = useState("");
+  const [selectedTeacherId, setSelectedTeacherId] = useState("");
+  const [creatingClass, setCreatingClass] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -232,6 +260,414 @@ export default function InstitutionAdminDashboard({ user, accessToken, onLogout 
       setLoading(false);
     }
   }
+  async function loadClasses() {
+  setClassesLoading(true);
+  setClassesError("");
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/classes`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to load classes."
+      );
+    }
+
+    setClasses(Array.isArray(data.items) ? data.items : []);
+
+  } catch (err) {
+    setClassesError(
+      err.message || "Unable to load classes."
+    );
+  } finally {
+    setClassesLoading(false);
+  }
+}
+
+  async function loadSubjects() {
+  setLoadingSubjects(true);
+  setSubjectsError("");
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/subjects`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.detail || "Unable to load subjects.");
+    }
+
+    setSubjects(data.items || []);
+  } catch (err) {
+    setSubjectsError(err.message || "Unable to load subjects.");
+  } finally {
+    setLoadingSubjects(false);
+  }
+}
+
+async function loadClassSubjects() {
+  setSubjectsError("");
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/subjects/class-subjects`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to load class subjects."
+      );
+    }
+
+    setClassSubjects(data.items || []);
+  } catch (err) {
+    setSubjectsError(err.message || "Unable to load class subjects.");
+  }
+}
+async function createSubject(event) {
+  event.preventDefault();
+
+  const name = newSubjectName.trim();
+
+  if (!name) {
+    setSubjectsError("Please enter a subject name.");
+    return;
+  }
+
+  setCreatingSubject(true);
+  setSubjectsError("");
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/subjects`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ name }),
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to create subject."
+      );
+    }
+
+    setNewSubjectName("");
+    await loadSubjects();
+
+  } catch (err) {
+    setSubjectsError(
+      err.message || "Unable to create subject."
+    );
+  } finally {
+    setCreatingSubject(false);
+  }
+}
+async function assignClassSubject(event) {
+  event.preventDefault();
+  setSubjectsError("");
+
+  if (
+    !selectedClassForSubject ||
+    !selectedSubjectId ||
+    !selectedSubjectTeacherId
+  ) {
+    setSubjectsError("Please select a class, subject and teacher.");
+    return;
+  }
+  // Check whether this subject is already assigned to this class.
+const alreadyAssigned = classSubjects.some(
+  (item) =>
+    Number(item.class_id) === Number(selectedClassForSubject) &&
+    Number(item.subject_id) === Number(selectedSubjectId)
+);
+
+if (alreadyAssigned) {
+  setSubjectsError(
+    "This subject is already assigned to the selected class. Please choose another subject or class."
+  );
+  return;
+}
+
+  setAssigningClassSubject(true);
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/subjects/class-subjects`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          class_id: Number(selectedClassForSubject),
+          subject_id: Number(selectedSubjectId),
+          teacher_id: Number(selectedSubjectTeacherId),
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to assign subject to class."
+      );
+    }
+
+    setSelectedClassForSubject("");
+    setSelectedSubjectId("");
+    setSelectedSubjectTeacherId("");
+
+    await loadClassSubjects();
+  } catch (err) {
+    setSubjectsError(
+      err.message || "Unable to assign subject to class."
+    );
+  } finally {
+    setAssigningClassSubject(false);
+  }
+}
+async function saveClassSubjectTeacher(classSubjectId) {
+  if (!replacementTeacherId) {
+    setSubjectsError("Please select a replacement teacher.");
+    return;
+  }
+
+  setUpdatingClassSubjectTeacher(true);
+  setSubjectsError("");
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/subjects/class-subjects/${classSubjectId}/teacher`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          teacher_id: Number(replacementTeacherId),
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to change the subject teacher."
+      );
+    }
+
+    setEditingClassSubjectId(null);
+    setReplacementTeacherId("");
+
+    await loadClassSubjects();
+
+  } catch (err) {
+    setSubjectsError(
+      err.message || "Unable to change the subject teacher."
+    );
+  } finally {
+    setUpdatingClassSubjectTeacher(false);
+  }
+}
+async function enrollStudentInSubject(classSubjectId) {
+  if (!selectedSubjectStudentId) {
+    setSubjectsError("Please select a student.");
+    return;
+  }
+
+  setSavingSubjectEnrollment(true);
+  setSubjectsError("");
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/subjects/class-subjects/${classSubjectId}/students`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          student_id: Number(selectedSubjectStudentId),
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to enrol student in subject."
+      );
+    }
+
+    setSelectedSubjectStudentId("");
+    setEnrollingSubjectId(null);
+
+    await loadClassSubjects();
+
+  } catch (err) {
+    setSubjectsError(
+      err.message || "Unable to enrol student in subject."
+    );
+  } finally {
+    setSavingSubjectEnrollment(false);
+  }
+}
+
+async function createClass(event) {
+  event.preventDefault();
+  setClassesError("");
+
+  if (!className.trim() || !selectedTeacherId) {
+    setClassesError("Enter a class name and select a teacher.");
+    return;
+  }
+
+  setCreatingClass(true);
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/classes`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          name: className.trim(),
+          teacher_id: Number(selectedTeacherId),
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.detail || "Unable to create class.");
+    }
+
+    setClasses((previous) => [
+      {
+        ...data,
+        student_count: 0,
+        students: [],
+      },
+      ...previous,
+    ]);
+
+    setClassName("");
+    setSelectedTeacherId("");
+    setShowCreateClass(false);
+
+  } catch (err) {
+    setClassesError(err.message || "Unable to create class.");
+  } finally {
+    setCreatingClass(false);
+  }
+}
+function getAvailableStudentsForSubject(classSubject) {
+  const schoolClass = classes.find(
+    (item) =>
+      Number(item.id) === Number(classSubject.class_id)
+  );
+
+  const enrolledStudentIds = new Set(
+    (classSubject.students || []).map(
+      (student) => Number(student.id)
+    )
+  );
+
+  return (schoolClass?.students || []).filter(
+    (student) =>
+      student.is_active &&
+      !enrolledStudentIds.has(Number(student.id))
+  );
+}
+async function enrollStudent(event) {
+  event.preventDefault();
+  setClassesError("");
+
+  if (!selectedClassId || !selectedStudentId) {
+    setClassesError("Please select a student.");
+    return;
+  }
+
+  setEnrollingStudent(true);
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/classes/${selectedClassId}/students`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          student_id: Number(selectedStudentId),
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to enrol student."
+      );
+    }
+
+    setSelectedStudentId("");
+
+    // Refresh the class list to display the new enrollment.
+    await loadClasses();
+
+  } catch (err) {
+    setClassesError(
+      err.message || "Unable to enrol student."
+    );
+  } finally {
+    setEnrollingStudent(false);
+  }
+}
+
+
 
   useEffect(() => {
     loadMembers();
@@ -239,6 +675,20 @@ export default function InstitutionAdminDashboard({ user, accessToken, onLogout 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
 
+  useEffect(() => {
+  if (activePage === "Classes") {
+    loadClasses();
+  }
+
+  if (activePage === "Subjects") {
+    loadClasses();
+    loadMembers();
+    loadSubjects();
+    loadClassSubjects();
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [activePage, accessToken]);
   const visibleMembers = members.filter((member) =>
     `${member.full_name || ""} ${member.email} ${member.role}`
       .toLowerCase()
@@ -295,6 +745,20 @@ export default function InstitutionAdminDashboard({ user, accessToken, onLogout 
 
   const teachers = members.filter((member) => member.role === "teacher").length;
   const students = members.filter((member) => member.role === "student").length;
+
+  const selectedClass = classes.find(
+  (schoolClass) => schoolClass.id === selectedClassId
+);
+
+const availableStudents = members.filter(
+  (member) =>
+    member.role === "student" &&
+    !classes.some((schoolClass) =>
+      schoolClass.students?.some(
+        (student) => student.id === member.id
+      )
+    )
+);
 
   return (
     <div className="institution-admin">
@@ -376,6 +840,21 @@ export default function InstitutionAdminDashboard({ user, accessToken, onLogout 
         <Plus size={16} /> Add teacher or student
       </button>
     )}
+    {activePage === "Classes" && (
+      <button
+        className="ia-primary"
+        type="button"
+        onClick={() => {
+          setClassesError("");
+          setClassName("");
+          setSelectedTeacherId("");
+          setShowCreateClass(true);
+        }}
+      >
+        <Plus size={16} /> Create Class
+      </button>
+    )}
+
   </div>
 
   {error && (
@@ -609,6 +1088,726 @@ export default function InstitutionAdminDashboard({ user, accessToken, onLogout 
       </div>
     </section>
   )}
+  
+      
+      {/* CLASSES */}
+      {activePage === "Classes" && (
+        <>
+          {/* CLASSES LIST */}
+          <section className="ia-panel">
+            <div className="ia-panel-head">
+              <div>
+                <h2>Institution classes</h2>
+                <p>
+                  Manage classes, assigned teachers and student enrollment.
+                </p>
+              </div>
+            </div>
+
+            {classesError && (
+              <div className="ia-notice ia-error" role="alert">
+                {classesError}
+              </div>
+            )}
+
+            {classesLoading ? (
+              <div className="ia-empty">
+                Loading classes...
+              </div>
+            ) : classes.length === 0 ? (
+              <div className="ia-empty">
+                No classes have been created yet.
+                Use the Create Class button to get started.
+              </div>
+            ) : (
+              <div className="ia-table-wrap">
+                <table className="ia-table">
+                  <thead>
+                    <tr>
+                      <th>Class name</th>
+                      <th>Students enrolled</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {classes.map((schoolClass) => (
+                      <tr key={schoolClass.id}>
+                        <td>
+                          <div className="ia-person">
+                            <span className="ia-person-icon">
+                              <ClipboardList size={16} />
+                            </span>
+
+                            <span>
+                              <strong>{schoolClass.name}</strong>
+                              <small>Class ID: {schoolClass.id}</small>
+                            </span>
+                          </div>
+                        </td>
+
+                       
+
+                        <td>
+                          <span className="ia-badge active">
+                            {schoolClass.student_count ?? 0} students
+                          </span>
+                        </td>
+
+                        <td>
+                          <button
+                            type="button"
+                            className="ia-secondary"
+                            onClick={() => {
+                              setSelectedClassId(schoolClass.id);
+                              setSelectedStudentId("");
+                              setClassesError("");
+                            }}
+                          >
+                            Manage
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* SELECTED CLASS DETAILS */}
+          {selectedClass && (
+            <section
+              className="ia-panel"
+              style={{ marginTop: "20px" }}
+            >
+              <div className="ia-panel-head">
+                <div>
+                  <h2>{selectedClass.name}</h2>
+
+                  <p>
+                    {selectedClass.student_count} students enrolled
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="ia-secondary"
+                  onClick={() => {
+                    setSelectedClassId(null);
+                    setSelectedStudentId("");
+                    setClassesError("");
+                  }}
+                >
+                  Back to classes
+                </button>
+              </div>
+
+              <div style={{ padding: "20px" }}>
+                <h3 style={{ fontSize: "14px" }}>
+                  Enrol a student
+                </h3>
+
+                <form
+                  onSubmit={enrollStudent}
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "10px",
+                    alignItems: "center",
+                    marginTop: "15px",
+                  }}
+                >
+                  <select
+                    value={selectedStudentId}
+                    onChange={(event) =>
+                      setSelectedStudentId(event.target.value)
+                    }
+                    required
+                    style={{
+                      flex: "1 1 250px",
+                      minHeight: "40px",
+                      padding: "8px 10px",
+                      border: "1px solid #dce4eb",
+                      borderRadius: "8px",
+                      font: "inherit",
+                    }}
+                  >
+                    <option value="">Select a student...</option>
+
+                    {availableStudents.map((student) => (
+                      <option
+                        key={student.id}
+                        value={student.id}
+                      >
+                        {student.full_name} ({student.email})
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="submit"
+                    className="ia-primary"
+                    disabled={
+                      enrollingStudent || !selectedStudentId
+                    }
+                  >
+                    {enrollingStudent
+                      ? "Enrolling..."
+                      : "Enrol Student"}
+                  </button>
+                </form>
+
+                {availableStudents.length === 0 && (
+                  <p className="ia-description">
+                    All active students are already enrolled in this class,
+                    or no active students are available.
+                  </p>
+                )}
+
+                <h3
+                  style={{
+                    marginTop: "30px",
+                    fontSize: "14px",
+                  }}
+                >
+                  Enrolled students
+                </h3>
+
+                {!selectedClass.students ||
+                selectedClass.students.length === 0 ? (
+                  <div className="ia-empty">
+                    No students are enrolled in this class yet.
+                  </div>
+                ) : (
+                  <div className="ia-table-wrap">
+                    <table className="ia-table">
+                      <thead>
+                        <tr>
+                          <th>Student name</th>
+                          <th>Email</th>
+                          <th>Account status</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {selectedClass.students.map((student) => (
+                          <tr key={student.id}>
+                            <td>
+                              <strong>
+                                {student.full_name || "Unnamed student"}
+                              </strong>
+                            </td>
+
+                            <td>{student.email}</td>
+
+                            <td>
+                              <span
+                                className={`ia-badge ${
+                                  student.is_active
+                                    ? "active"
+                                    : "inactive"
+                                }`}
+                              >
+                                {student.is_active
+                                  ? "Active"
+                                  : "Inactive"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+      {/* SUBJECTS */}
+{activePage === "Subjects" && (
+  <section className="ia-panel">
+    <div className="ia-panel-head">
+      <div>
+        <h2>Subject catalogue</h2>
+        <p>
+          Create and manage subjects offered by your institution.
+        </p>
+      </div>
+    </div>
+
+    {subjectsError && (
+      <div className="ia-notice ia-error" role="alert">
+        {subjectsError}
+      </div>
+    )}
+
+    {/* CREATE SUBJECT */}
+    <div style={{ padding: "20px" }}>
+      <h3 style={{ fontSize: "14px" }}>Add a new subject</h3>
+
+      <form
+        onSubmit={createSubject}
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "10px",
+          marginTop: "15px",
+          alignItems: "center",
+        }}
+      >
+        <input
+          value={newSubjectName}
+          onChange={(event) =>
+            setNewSubjectName(event.target.value)
+          }
+          placeholder="e.g. English Language"
+          maxLength={100}
+          required
+          style={{
+            flex: "1 1 250px",
+            minHeight: "40px",
+            padding: "8px 10px",
+            border: "1px solid #dce4eb",
+            borderRadius: "8px",
+            font: "inherit",
+          }}
+        />
+
+            <button
+              type="submit"
+              className="ia-primary"
+              disabled={creatingSubject || !newSubjectName.trim()}
+            >
+              {creatingSubject ? "Creating..." : "Add Subject"}
+            </button>
+            </form>
+            </div>
+            {/* ASSIGN SUBJECT TO CLASS */}
+<div style={{ padding: "20px" }}>
+  <h3 style={{ fontSize: "14px" }}>
+    Assign a subject to a class
+  </h3>
+
+  <p className="ia-description">
+    Select a class, subject and the teacher responsible for teaching it.
+  </p>
+
+  <form onSubmit={assignClassSubject}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+        gap: "15px",
+        marginTop: "15px",
+      }}
+    >
+      {/* SELECT CLASS */}
+      <label style={{ display: "grid", gap: "7px" }}>
+        **Class**
+
+        <select
+          value={selectedClassForSubject}
+          onChange={(event) =>
+            setSelectedClassForSubject(event.target.value)
+          }
+          required
+          style={{
+            minHeight: "42px",
+            padding: "8px",
+            border: "1px solid #dce4eb",
+            borderRadius: "8px",
+            font: "inherit",
+          }}
+        >
+          <option value="">Select a class...</option>
+
+          {classes.map((schoolClass) => (
+            <option key={schoolClass.id} value={schoolClass.id}>
+              {schoolClass.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {/* SELECT SUBJECT */}
+      <label style={{ display: "grid", gap: "7px" }}>
+        **Subject**
+
+        <select
+          value={selectedSubjectId}
+          onChange={(event) =>
+            setSelectedSubjectId(event.target.value)
+          }
+          required
+          style={{
+            minHeight: "42px",
+            padding: "8px",
+            border: "1px solid #dce4eb",
+            borderRadius: "8px",
+            font: "inherit",
+          }}
+        >
+          <option value="">Select a subject...</option>
+
+          {subjects.map((subject) => {
+            const alreadyAssigned = classSubjects.some(
+              (item) =>
+                Number(item.class_id) === Number(selectedClassForSubject) &&
+                Number(item.subject_id) === Number(subject.id)
+            );
+
+            return (
+              <option
+                key={subject.id}
+                value={subject.id}
+                disabled={Boolean(selectedClassForSubject) && alreadyAssigned}
+              >
+                {subject.name}
+                {alreadyAssigned ? " (Already assigned)" : ""}
+              </option>
+            );
+          })}
+        </select>
+      </label>
+
+      {/* SELECT TEACHER */}
+      <label style={{ display: "grid", gap: "7px" }}>
+        **Teacher**
+
+        <select
+          value={selectedSubjectTeacherId}
+          onChange={(event) =>
+            setSelectedSubjectTeacherId(event.target.value)
+          }
+          required
+          style={{
+            minHeight: "42px",
+            padding: "8px",
+            border: "1px solid #dce4eb",
+            borderRadius: "8px",
+            font: "inherit",
+          }}
+        >
+          <option value="">Select a teacher...</option>
+
+          {members
+            .filter(
+              (member) =>
+                member.role === "teacher" && member.is_active
+            )
+            .map((teacher) => (
+              <option key={teacher.id} value={teacher.id}>
+                {teacher.full_name}
+              </option>
+            ))}
+        </select>
+      </label>
+    </div>
+
+    <button
+      type="submit"
+      className="ia-primary"
+      disabled={
+        assigningClassSubject ||
+        !selectedClassForSubject ||
+        !selectedSubjectId ||
+        !selectedSubjectTeacherId
+      }
+      style={{ marginTop: "18px" }}
+    >
+      {assigningClassSubject
+        ? "Assigning..."
+        : "Assign Subject"}
+    </button>
+  </form>
+</div>
+            {/* CLASS-SUBJECT ASSIGNMENTS */}
+            <div style={{ padding: "20px" }}>
+              <h3 style={{ fontSize: "14px", marginBottom: "8px" }}>
+                Class-subject assignments
+              </h3>
+
+              <p className="ia-description">
+                Manage assigned teachers for each subject within a class.
+              </p>
+
+              {classSubjects.length === 0 ? (
+                <div className="ia-empty">
+                  No subjects have been assigned to classes yet.
+                </div>
+              ) : (
+                <div className="ia-table-wrap">
+                  <table className="ia-table">
+                    <thead>
+                      <tr>
+                        <th>Class</th>
+                        <th>Subject</th>
+                        <th>Assigned teacher</th>
+                        <th>Students</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {classSubjects.map((item) => (
+                        <tr key={item.id}>
+                          <td>
+                            <strong>{item.class_name}</strong>
+                          </td>
+
+                          <td>{item.subject_name}</td>
+
+                          <td>
+                            {editingClassSubjectId === item.id ? (
+                              <select
+                                value={replacementTeacherId}
+                                onChange={(event) =>
+                                  setReplacementTeacherId(event.target.value)
+                                }
+                                style={{
+                                  minHeight: "36px",
+                                  padding: "6px",
+                                  border: "1px solid #dce4eb",
+                                  borderRadius: "8px",
+                                  font: "inherit",
+                                }}
+                              >
+                                <option value="">Select replacement teacher...</option>
+
+                                {members
+                                  .filter(
+                                    (member) =>
+                                      member.role === "teacher" &&
+                                      member.is_active
+                                  )
+                                  .map((teacher) => (
+                                    <option
+                                      key={teacher.id}
+                                      value={teacher.id}
+                                    >
+                                      {teacher.full_name}
+                                    </option>
+                                  ))}
+                              </select>
+                            ) : (
+                              <strong>{item.teacher_name}</strong>
+                            )}
+                          </td>
+
+                          <td>{item.student_count ?? 0}</td>
+
+                          <td>
+                            {editingClassSubjectId === item.id ? (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "8px",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  className="ia-primary"
+                                  disabled={
+                                    updatingClassSubjectTeacher ||
+                                    !replacementTeacherId
+                                  }
+                                  onClick={() =>
+                                    saveClassSubjectTeacher(item.id)
+                                  }
+                                >
+                                  {updatingClassSubjectTeacher
+                                    ? "Saving..."
+                                    : "Save"}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="ia-secondary"
+                                  disabled={updatingClassSubjectTeacher}
+                                  onClick={() => {
+                                    setEditingClassSubjectId(null);
+                                    setReplacementTeacherId("");
+                                    setSubjectsError("");
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  gap: "8px",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  className="ia-secondary"
+                                  onClick={() => {
+                                    setEditingClassSubjectId(item.id);
+                                    setReplacementTeacherId(
+                                      String(item.teacher_id)
+                                    );
+                                    setSubjectsError("");
+                                  }}
+                                >
+                                  Change teacher
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="ia-primary"
+                                  onClick={() => {
+                                    setEnrollingSubjectId(item.id);
+                                    setSelectedSubjectStudentId("");
+                                    setSubjectsError("");
+                                  }}
+                                >
+                                  Enrol students
+                                </button>
+                              </div>
+                            )}
+                            {enrollingSubjectId === item.id && (
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gap: "10px",
+                                  marginTop: "12px",
+                                  minWidth: "200px",
+                                }}
+                              >
+                                {getAvailableStudentsForSubject(item).length === 0 ? (
+                                  <p className="ia-description">
+                                    No eligible students available in this class.
+                                  </p>
+                                ) : (
+                                  <select
+                                    value={selectedSubjectStudentId}
+                                    onChange={(event) =>
+                                      setSelectedSubjectStudentId(event.target.value)
+                                    }
+                                    style={{
+                                      minHeight: "38px",
+                                      padding: "7px",
+                                      border: "1px solid #dce4eb",
+                                      borderRadius: "8px",
+                                      font: "inherit",
+                                    }}
+                                  >
+                                    <option value="">
+                                      Select a student...
+                                    </option>
+
+                                    {getAvailableStudentsForSubject(item).map((student) => (
+                                      <option
+                                        key={student.id}
+                                        value={student.id}
+                                      >
+                                        {student.full_name} ({student.email})
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: "8px",
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    className="ia-primary"
+                                    disabled={
+                                      savingSubjectEnrollment ||
+                                      !selectedSubjectStudentId ||
+                                      getAvailableStudentsForSubject(item).length === 0
+                                    }
+                                    onClick={() =>
+                                      enrollStudentInSubject(item.id)
+                                    }
+                                  >
+                                    {savingSubjectEnrollment
+                                      ? "Enrolling..."
+                                      : "Enrol student"}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="ia-secondary"
+                                    disabled={savingSubjectEnrollment}
+                                    onClick={() => {
+                                      setEnrollingSubjectId(null);
+                                      setSelectedSubjectStudentId("");
+                                      setSubjectsError("");
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* SUBJECT LIST */}
+            <div style={{ padding: "0 20px 20px" }}>
+              <h3 style={{ fontSize: "14px", marginBottom: "15px" }}>
+                Existing subjects
+              </h3>
+
+              {loadingSubjects ? (
+                <div className="ia-empty">Loading subjects...</div>
+              ) : subjects.length === 0 ? (
+                <div className="ia-empty">
+                  No subjects have been created yet.
+                </div>
+              ) : (
+                <div className="ia-table-wrap">
+                  <table className="ia-table">
+                    <thead>
+                      <tr>
+                        <th>Subject name</th>
+                        <th>Subject ID</th>
+                        <th>Created</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {subjects.map((subject) => (
+                        <tr key={subject.id}>
+                          <td>
+                            <strong>{subject.name}</strong>
+                          </td>
+                          <td>{subject.id}</td>
+                          <td>
+                            {subject.created_at
+                              ? new Date(subject.created_at).toLocaleDateString()
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+
+
 
   <footer className="ia-footer">
     EnglishPrep AI · {user?.institution_name || "Institution workspace"}
@@ -694,6 +1893,128 @@ export default function InstitutionAdminDashboard({ user, accessToken, onLogout 
           </section>
         </div>
       )}
+      
+      {showCreateClass && (
+        <div
+          className="ia-modal-backdrop"
+          onClick={() => {
+            if (!creatingClass) {
+              setShowCreateClass(false);
+            }
+          }}
+        >
+          <section
+            className="ia-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-class-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="ia-modal-head">
+              <h2 id="create-class-title">Create class</h2>
+
+              <button
+                type="button"
+                onClick={() => setShowCreateClass(false)}
+                aria-label="Close"
+                disabled={creatingClass}
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            <p>
+              Create a class and assign a teacher from your institution.
+            </p>
+
+            <form onSubmit={createClass}>
+              <label className="ia-field">
+                Class name
+
+                <input
+                  value={className}
+                  onChange={(event) =>
+                    setClassName(event.target.value)
+                  }
+                  minLength={2}
+                  maxLength={100}
+                  required
+                  placeholder="Example: Year 10A"
+                />
+              </label>
+
+              <label className="ia-field">
+                Assign teacher
+
+                <select
+                  value={selectedTeacherId}
+                  onChange={(event) =>
+                    setSelectedTeacherId(event.target.value)
+                  }
+                  required
+                >
+                  <option value="">Select a teacher...</option>
+
+                  {members
+                    .filter(
+                      (member) =>
+                        member.role === "teacher" &&
+                        member.is_active
+                    )
+                    .map((teacher) => (
+                      <option
+                        key={teacher.id}
+                        value={teacher.id}
+                      >
+                        {teacher.full_name} ({teacher.email})
+                      </option>
+                    ))}
+                </select>
+              </label>
+
+              {members.filter(
+                (member) =>
+                  member.role === "teacher" && member.is_active
+              ).length === 0 && (
+                <div className="ia-notice">
+                  No active teachers are available. Add and activate
+                  a teacher account before creating a class.
+                </div>
+              )}
+
+              {classesError && (
+                <div className="ia-notice ia-error" role="alert">
+                  {classesError}
+                </div>
+              )}
+
+              <div className="ia-actions">
+                <button
+                  type="button"
+                  className="ia-secondary"
+                  onClick={() => setShowCreateClass(false)}
+                  disabled={creatingClass}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="ia-primary"
+                  disabled={
+                    creatingClass ||
+                    !className.trim() ||
+                    !selectedTeacherId
+                  }
+                >
+                  {creatingClass ? "Creating..." : "Create Class"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
 
       {invitation && (
         <div className="ia-modal-backdrop" onClick={() => setInvitation(null)}>

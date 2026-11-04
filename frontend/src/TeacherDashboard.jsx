@@ -12,9 +12,10 @@ import {
   LogOut,
   X,
 } from "lucide-react";
-
+import { authenticatedFetch } from "./api";
+import AiExamGenerator from "./AiExamGenerator";
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
 ).replace(/\/$/, "");
 
 const styles = `
@@ -92,6 +93,12 @@ const navigation = [
 export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [activePage, setActivePage] = useState("Overview");
   const [exams, setExams] = useState([]);
+  const [studentResults, setStudentResults] = useState([]);
+  const [loadingStudentResults, setLoadingStudentResults] = useState(false);
+  const [studentResultsError, setStudentResultsError] = useState("");
+  const [retestLoadingAttemptId, setRetestLoadingAttemptId] = useState(null);
+  const [selectedStudentResult, setSelectedStudentResult] = useState(null);
+  const [currentReviewQuestionIndex, setCurrentReviewQuestionIndex] = useState(0);
   const [passages, setPassages] = useState([]);
   const [loadingPassages, setLoadingPassages] = useState(false);
   const [passageError, setPassageError] = useState("");
@@ -116,11 +123,18 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [showAiCreate, setShowAiCreate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [publishingExamId, setPublishingExamId] = useState(null);
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("English Language");
   const [level, setLevel] = useState("O Level");
+  const [availableClasses, setAvailableClasses] = useState([]);
+  const [selectedClassIds, setSelectedClassIds] = useState([]);
+  const [loadingClasses, setLoadingClasses] = useState(false);
+  const [availableClassSubjects, setAvailableClassSubjects] = useState([]);
+  const [selectedClassSubjectId, setSelectedClassSubjectId] = useState("");
+  const [loadingClassSubjects, setLoadingClassSubjects] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [duration, setDuration] = useState("60");
   const [selectedExam, setSelectedExam] = useState(null);
@@ -136,9 +150,11 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/exams`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/api/exams`,
+        {},
+        accessToken
+      );
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -157,13 +173,10 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   setPassageError("");
 
   try {
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `${API_BASE_URL}/api/content/passages`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
+      {},
+      accessToken
     );
 
     const data = await response.json().catch(() => ({}));
@@ -190,13 +203,10 @@ async function loadQuestions() {
   setQuestionError("");
 
   try {
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `${API_BASE_URL}/api/content/questions`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
+      {},
+      accessToken
     );
 
     const data = await response.json().catch(() => ({}));
@@ -223,14 +233,11 @@ async function loadExamQuestions(examId) {
   setExamQuestionsError("");
 
   try {
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `${API_BASE_URL}/api/exams/${examId}/questions`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
+      {},
+      accessToken
+    );;
 
     const data = await response.json().catch(() => ({}));
 
@@ -264,19 +271,19 @@ async function addQuestionToExam(event) {
   setAddingQuestion(true);
 
   try {
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `${API_BASE_URL}/api/exams/${selectedExam.id}/questions`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           question_id: Number(selectedQuestionId),
           marks_override: null,
         }),
-      }
+      },
+      accessToken
     );
 
     const data = await response.json().catch(() => ({}));
@@ -356,7 +363,7 @@ async function createQuestion(event) {
 
     const isEditing = editingQuestionId !== null;
 
-    const response = await fetch(
+    const response = await authenticatedFetch(
       isEditing
         ? `${API_BASE_URL}/api/content/questions/${editingQuestionId}`
         : `${API_BASE_URL}/api/content/questions`,
@@ -364,10 +371,10 @@ async function createQuestion(event) {
         method: isEditing ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify(payload),
-      }
+      },
+      accessToken
     );
 
     const data = await response.json().catch(() => ({}));
@@ -415,21 +422,21 @@ async function createPassage(event) {
   setSavingPassage(true);
 
   try {
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `${API_BASE_URL}/api/content/passages`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           title: passageTitle.trim(),
           category: passageCategory.trim() || "General",
           content: passageContent.trim(),
         }),
-      }
-    );
+      },
+      accessToken
+    );;
 
     const data = await response.json().catch(() => ({}));
 
@@ -471,48 +478,225 @@ async function createPassage(event) {
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [activePage, accessToken]);
-  
+useEffect(() => {
+  if (activePage === "Student results") {
+    loadStudentResults();
+  }
 
-  async function createExam(event) {
-    event.preventDefault();
-    setError("");
-    setSubmitting(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [activePage, accessToken]);
+  
+  async function loadAvailableClassSubjects() {
+  setLoadingClassSubjects(true);
+  setError("");
+
+  try {
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/exams/available-class-subjects`,
+      {},
+      accessToken
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to load your assigned subjects."
+      );
+    }
+
+    setAvailableClassSubjects(data.items || []);
+  } catch (err) {
+    setError(
+      err.message || "Unable to load your assigned subjects."
+    );
+    setAvailableClassSubjects([]);
+  } finally {
+    setLoadingClassSubjects(false);
+  }
+}
+  async function loadStudentResults() {
+  setLoadingStudentResults(true);
+  setStudentResultsError("");
+
+  try {
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/exams/teacher/results`,
+      {},
+      accessToken
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to load student results."
+      );
+    }
+
+    setStudentResults(data.items || []);
+
+  } catch (err) {
+    setStudentResultsError(
+      err.message || "Unable to load student results."
+    );
+    setStudentResults([]);
+
+  } finally {
+    setLoadingStudentResults(false);
+  }
+}
+
+  async function allowStudentRetest(result) {
+    const confirmed = window.confirm(
+      `Allow ${result.student_name} to retake "${result.exam_title}"?`
+    );
+
+    if (!confirmed) return;
+
+    setRetestLoadingAttemptId(result.attempt_id);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/exams`, {
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/api/exams/${result.exam_id}/students/${result.student_id}/allow-retest`,
+        {
+          method: "POST",
+        },
+        accessToken
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Unable to grant retest permission."
+        );
+      }
+
+      window.alert(
+        `Retest permission granted to ${result.student_name}.`
+      );
+
+      await loadStudentResults();
+
+    } catch (err) {
+      window.alert(
+        err.message || "Unable to grant retest permission."
+      );
+    } finally {
+      setRetestLoadingAttemptId(null);
+    }
+  }
+  function getAttemptDisplayInfo(result) {
+  const relatedAttempts = studentResults
+    .filter(
+      (item) =>
+        item.student_id === result.student_id &&
+        item.exam_id === result.exam_id
+    )
+    .sort((a, b) => {
+      const dateA = new Date(a.started_at || 0).getTime();
+      const dateB = new Date(b.started_at || 0).getTime();
+
+      return (
+        dateA - dateB ||
+        a.attempt_id - b.attempt_id
+      );
+    });
+
+  const index = relatedAttempts.findIndex(
+    (item) => item.attempt_id === result.attempt_id
+  );
+
+  return {
+    attemptNumber: index + 1,
+    isLatest: index === relatedAttempts.length - 1,
+  };
+}
+
+async function loadAvailableClassSubjects() {
+  setLoadingClassSubjects(true);
+  setError("");
+
+  try {
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/exams/available-class-subjects`,
+      {},
+      accessToken
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to load your assigned subjects."
+      );
+    }
+
+    setAvailableClassSubjects(data.items || []);
+  } catch (err) {
+    setError(
+      err.message || "Unable to load your assigned subjects."
+    );
+    setAvailableClassSubjects([]);
+  } finally {
+    setLoadingClassSubjects(false);
+  }
+}
+  async function createExam(event) {
+  event.preventDefault();
+  setError("");
+
+  if (!selectedClassSubjectId) {
+    setError("Please select a subject and class.");
+    return;
+  }
+
+  setSubmitting(true);
+
+  try {
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/exams`,
+      {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           title: title.trim(),
-          subject,
           level: level.trim() || null,
           instructions: instructions.trim() || null,
           duration_minutes: duration ? Number(duration) : null,
+          class_subject_id: Number(selectedClassSubjectId),
         }),
-      });
+      },
+      accessToken
+    );
 
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.detail || "Unable to create exam.");
-      }
+    const data = await response.json().catch(() => ({}));
 
-      setExams((current) => [data, ...current]);
-      setTitle("");
-      setSubject("English Language");
-      setLevel("O Level");
-      setInstructions("");
-      setDuration("60");
-      setShowCreate(false);
-      setActivePage("Exams");
-    } catch (err) {
-      setError(err.message || "Unable to create exam.");
-    } finally {
-      setSubmitting(false);
+    if (!response.ok) {
+      throw new Error(data.detail || "Unable to create exam.");
     }
+
+    setExams((current) => [data, ...current]);
+
+    // Reset the form.
+    setTitle("");
+    setLevel("O Level");
+    setInstructions("");
+    setDuration("60");
+    setSelectedClassSubjectId("");
+
+    setShowCreate(false);
+    setActivePage("Exams");
+
+  } catch (err) {
+    setError(err.message || "Unable to create exam.");
+  } finally {
+    setSubmitting(false);
   }
+}
   async function publishExam(exam) {
   const confirmed = window.confirm(
     `Publish "${exam.title}"? It will become available to students in your institution, and you won't be able to add more questions afterward.`
@@ -526,14 +710,12 @@ async function createPassage(event) {
   setError("");
 
   try {
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `${API_BASE_URL}/api/exams/${exam.id}/publish`,
       {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
+      },
+      accessToken
     );
 
     const data = await response.json().catch(() => ({}));
@@ -621,16 +803,32 @@ async function createPassage(event) {
             </div>
 
             {activePage === "Exams" && (
-              <button
-                className="teacher-primary"
-                type="button"
-                onClick={() => {
-                  setError("");
-                  setShowCreate(true);
-                }}
-              >
-                <Plus size={16} /> Create exam
-              </button>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <button
+                  className="teacher-primary"
+                  type="button"
+                  onClick={async () => {
+                    setError("");
+                    setSelectedClassSubjectId("");
+                    setShowCreate(true);
+                    await loadAvailableClassSubjects();
+                  }}
+                >
+                  <Plus size={16} /> Create exam
+                </button>
+
+                <button
+                  className="teacher-primary"
+                  type="button"
+                  onClick={async () => {
+                    setError("");
+                    setShowAiCreate(true);
+                    await loadAvailableClassSubjects();
+                  }}
+                >
+                  ✨ Create Exam Using AI
+                </button>
+              </div>
             )}
           </div>
 
@@ -961,6 +1159,7 @@ async function createPassage(event) {
   </section>
 )}
 
+
 {activePage === "Student results" && (
   <section className="teacher-panel">
     <div className="teacher-panel-head">
@@ -972,12 +1171,368 @@ async function createPassage(event) {
       </div>
     </div>
 
-    <div className="teacher-empty">
-      Student results will appear here when exam attempts and evaluation
-      are connected.
+    {studentResultsError && (
+      <div className="teacher-notice teacher-error" role="alert">
+        {studentResultsError}
+      </div>
+    )}
+
+    {loadingStudentResults ? (
+      <div className="teacher-empty">
+        Loading student results...
+      </div>
+    ) : studentResults.length === 0 ? (
+      <div className="teacher-empty">
+        No submitted student attempts found for your assigned subjects.
+      </div>
+    ) : (
+      <div className="teacher-table-wrap">
+        <table className="teacher-table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Exam</th>
+              <th>Subject / Class</th>
+              <th>Submitted</th>
+              <th>Marks</th>
+              <th>Evaluation</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {studentResults.map((result) => (
+              <tr key={result.attempt_id}>
+                <td>
+                  <strong>{result.student_name}</strong>
+                  <br />
+                  <small>{result.student_email}</small>
+                </td>
+
+                <td>
+                  <strong>{result.exam_title}</strong>
+                  <br />
+
+                  <small>
+                    Attempt {getAttemptDisplayInfo(result).attemptNumber}
+                  </small>
+
+                  <br />
+
+                  <span
+                    style={{
+                      display: "inline-block",
+                      marginTop: "5px",
+                      padding: "3px 8px",
+                      borderRadius: "12px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      background: getAttemptDisplayInfo(result).isLatest
+                        ? "#e6f4ea"
+                        : "#f1f5f9",
+                      color: getAttemptDisplayInfo(result).isLatest
+                        ? "#237a43"
+                        : "#64748b",
+                    }}
+                  >
+                    {getAttemptDisplayInfo(result).isLatest
+                      ? "Latest Attempt"
+                      : "Previous Attempt"}
+                  </span>
+                </td>
+
+                <td>
+                  {result.subject_name}
+                  <br />
+                  <small>{result.class_name}</small>
+                </td>
+
+                <td>
+                  {result.submitted_at
+                    ? new Date(result.submitted_at).toLocaleDateString()
+                    : "—"}
+                </td>
+
+                <td>
+                  {result.evaluation_status === "completed"
+                    ? `${result.evaluation_summary.marks_awarded} / ${result.evaluation_summary.max_marks}`
+                    : result.evaluation_status === "pending"
+                      ? "Pending"
+                      : result.evaluation_status === "failed"
+                        ? "Failed"
+                        : "—"}
+                </td>
+
+                <td>
+                  <span className="teacher-status">
+                    {result.evaluation_status}
+                  </span>
+                </td>
+
+                <td>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="teacher-primary"
+                      onClick={() => setSelectedStudentResult(result)}
+                    >
+                      View results
+                    </button>
+
+                    <button
+                      type="button"
+                      className="teacher-primary"
+                      disabled={retestLoadingAttemptId === result.attempt_id}
+                      onClick={() => allowStudentRetest(result)}
+                    >
+                      {retestLoadingAttemptId === result.attempt_id
+                        ? "Granting..."
+                        : "Allow Retest"}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+
+    {/* INDIVIDUAL STUDENT RESULT REVIEW */}
+    {selectedStudentResult && (
+      <section
+        className="teacher-panel"
+        style={{ marginTop: "24px" }}
+      >
+        <div className="teacher-panel-head">
+          <div>
+            <h2>{selectedStudentResult.student_name}</h2>
+            <p>
+              {selectedStudentResult.exam_title}
+              {" · "}
+              {selectedStudentResult.subject_name}
+              {" · "}
+              {selectedStudentResult.class_name}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="teacher-secondary"
+            onClick={() => setSelectedStudentResult(null)}
+          >
+            Close review
+          </button>
+        </div>
+
+        <div style={{ padding: "20px" }}>
+          <div className="teacher-stats">
+            <article className="teacher-stat">
+              <span>Marks awarded</span>
+              <strong>
+                {selectedStudentResult.evaluation_summary.marks_awarded}
+                {" / "}
+                {selectedStudentResult.evaluation_summary.max_marks}
+              </strong>
+            </article>
+
+            <article className="teacher-stat">
+              <span>Evaluations completed</span>
+              <strong>
+                {selectedStudentResult.evaluation_summary.completed}
+                {" / "}
+                {selectedStudentResult.evaluation_summary.total}
+              </strong>
+            </article>
+
+            <article className="teacher-stat">
+              <span>Evaluation status</span>
+              <strong>
+                {selectedStudentResult.evaluation_status}
+              </strong>
+            </article>
+          </div>
+
+          <h3 style={{ marginTop: "25px", fontSize: "15px" }}>
+            Question-by-question review
+          </h3>
+
+          {selectedStudentResult.question_results?.length > 0 && (
+  <>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginTop: "20px",
+        marginBottom: "15px",
+      }}
+    >
+      <strong>
+        Question {currentReviewQuestionIndex + 1} of{" "}
+        {selectedStudentResult.question_results.length}
+      </strong>
+
+      <span className="teacher-status">
+        {selectedStudentResult.evaluation_status}
+      </span>
     </div>
+
+    <div
+      style={{
+        border: "1px solid #e2e8f0",
+        borderRadius: "10px",
+        padding: "20px",
+      }}
+    >
+      <h4 style={{ fontSize: "14px", marginBottom: "12px" }}>
+        Question{" "}
+        {selectedStudentResult.question_results[currentReviewQuestionIndex].position ||
+          currentReviewQuestionIndex + 1}
+      </h4>
+
+      <p style={{ fontWeight: 600 }}>
+        {selectedStudentResult.question_results[currentReviewQuestionIndex].prompt}
+      </p>
+
+      <div style={{ marginTop: "20px" }}>
+        <strong>Your student's answer</strong>
+
+        <p style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}>
+          {selectedStudentResult.question_results[currentReviewQuestionIndex].answer_text ||
+            "No answer submitted."}
+        </p>
+      </div>
+      {/* REFERENCE ANSWER */}
+      <div style={{ marginTop: "20px" }}>
+        <strong>Reference answer</strong>
+
+        <p
+          style={{
+            marginTop: "8px",
+            whiteSpace: "pre-wrap",
+            lineHeight: "1.6",
+          }}
+        >
+          {selectedStudentResult.question_results[currentReviewQuestionIndex].reference_answer ||
+            "No reference answer available."}
+        </p>
+      </div>
+
+      {/* MARKING CRITERIA */}
+      <div style={{ marginTop: "20px" }}>
+        <strong>Marking criteria</strong>
+
+        {selectedStudentResult.question_results[currentReviewQuestionIndex].marking_criteria?.length > 0 ? (
+          <ol
+            style={{
+              marginTop: "8px",
+              paddingLeft: "22px",
+              lineHeight: "1.8",
+            }}
+          >
+            {selectedStudentResult.question_results[currentReviewQuestionIndex].marking_criteria.map(
+              (criterion, index) => (
+                <li key={index}>
+                  {typeof criterion === "string"
+                    ? criterion
+                    : criterion.criterion || criterion.description || "Criterion unavailable"}
+
+                  {typeof criterion === "object" && criterion?.marks != null
+                    ? ` (${criterion.marks} marks)`
+                    : ""}
+                </li>
+              )
+            )}
+          </ol>
+        ) : (
+          <p style={{ marginTop: "8px" }}>
+            No marking criteria available.
+          </p>
+        )}
+      </div>
+
+      <div style={{ marginTop: "20px" }}>
+        <strong>Marks</strong>
+
+        <p style={{ marginTop: "8px" }}>
+          {selectedStudentResult.question_results[currentReviewQuestionIndex].evaluation_status === "completed"
+            ? `${selectedStudentResult.question_results[currentReviewQuestionIndex].marks_awarded} / ${selectedStudentResult.question_results[currentReviewQuestionIndex].max_marks}`
+            : `Evaluation ${selectedStudentResult.question_results[currentReviewQuestionIndex].evaluation_status}`}
+        </p>
+      </div>
+
+      {selectedStudentResult.question_results[currentReviewQuestionIndex].feedback && (
+        <div style={{ marginTop: "20px" }}>
+          <strong>AI feedback</strong>
+
+          <p style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}>
+            {selectedStudentResult.question_results[currentReviewQuestionIndex].feedback}
+          </p>
+        </div>
+      )}
+    </div>
+
+    {/* QUESTION NAVIGATION */}
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginTop: "20px",
+      }}
+    >
+      <button
+        type="button"
+        className="teacher-secondary"
+        disabled={currentReviewQuestionIndex === 0}
+        onClick={() =>
+          setCurrentReviewQuestionIndex((current) =>
+            Math.max(0, current - 1)
+          )
+        }
+      >
+        Previous
+      </button>
+
+      <span style={{ fontSize: "13px", color: "#64748b" }}>
+        {currentReviewQuestionIndex + 1} /{" "}
+        {selectedStudentResult.question_results.length}
+      </span>
+
+      <button
+        type="button"
+        className="teacher-primary"
+        disabled={
+          currentReviewQuestionIndex >=
+          selectedStudentResult.question_results.length - 1
+        }
+        onClick={() =>
+          setCurrentReviewQuestionIndex((current) =>
+            Math.min(
+              selectedStudentResult.question_results.length - 1,
+              current + 1
+            )
+          )
+        }
+      >
+        Next
+      </button>
+    </div>
+  </>
+)}
+        </div>
+      </section>
+    )}
   </section>
 )}
+
 
 
 
@@ -1152,6 +1707,14 @@ async function createPassage(event) {
     </section>
   </div>
 )}
+      {showAiCreate && (
+        <AiExamGenerator
+          onClose={() => setShowAiCreate(false)}
+          accessToken={accessToken}
+          availableClassSubjects={availableClassSubjects}
+          loadingClassSubjects={loadingClassSubjects}
+        />
+      )}
 
       {showCreate && (
         <div className="teacher-modal-backdrop" onClick={() => setShowCreate(false)}>
@@ -1182,16 +1745,7 @@ async function createPassage(event) {
                 />
               </label>
 
-              <label className="teacher-field">
-                Subject
-                <input
-                  value={subject}
-                  onChange={(event) => setSubject(event.target.value)}
-                  minLength={2}
-                  maxLength={100}
-                  required
-                />
-              </label>
+              
 
               <label className="teacher-field">
                 Level
@@ -1201,6 +1755,34 @@ async function createPassage(event) {
                   maxLength={50}
                   placeholder="e.g. O Level"
                 />
+              </label>
+              <label className="teacher-field">
+                Subject and class
+
+                {loadingClassSubjects ? (
+                  <p>Loading your assigned subjects...</p>
+                ) : availableClassSubjects.length === 0 ? (
+                  <p>
+                    No subjects have been assigned to you yet.
+                    Please contact your institution administrator.
+                  </p>
+                ) : (
+                  <select
+                    value={selectedClassSubjectId}
+                    onChange={(event) =>
+                      setSelectedClassSubjectId(event.target.value)
+                    }
+                    required
+                  >
+                    <option value="">Select a subject...</option>
+
+                    {availableClassSubjects.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.subject_name} — {item.class_name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </label>
 
               <label className="teacher-field">
@@ -1227,7 +1809,16 @@ async function createPassage(event) {
                 <button type="button" className="teacher-secondary" onClick={() => setShowCreate(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="teacher-primary" disabled={submitting}>
+                <button
+                  type="submit"
+                  className="teacher-primary"
+                  disabled={
+                    submitting ||
+                    loadingClassSubjects ||
+                    availableClassSubjects.length === 0 ||
+                    !selectedClassSubjectId
+                  }
+                >
                   {submitting ? "Saving…" : "Save draft exam"}
                 </button>
               </div>
