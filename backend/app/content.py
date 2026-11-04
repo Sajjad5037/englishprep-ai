@@ -118,11 +118,31 @@ def list_passages(
     db: Session = Depends(get_db),
     user: User = Depends(require_institution_user),
 ):
-    """List passages belonging only to the current institution."""
+    """List passages not already used in published exams."""
+
+    published_passage_ids = (
+        select(Question.passage_id)
+        .join(
+            ExamQuestion,
+            ExamQuestion.question_id == Question.id,
+        )
+        .join(
+            Exam,
+            Exam.id == ExamQuestion.exam_id,
+        )
+        .where(
+            Exam.institution_id == user.institution_id,
+            Exam.status == "Published",
+            Question.passage_id.is_not(None),
+        )
+    )
 
     passages = db.scalars(
         select(Passage)
-        .where(Passage.institution_id == user.institution_id)
+        .where(
+            Passage.institution_id == user.institution_id,
+            ~Passage.id.in_(published_passage_ids),
+        )
         .order_by(Passage.id.desc())
     ).all()
 

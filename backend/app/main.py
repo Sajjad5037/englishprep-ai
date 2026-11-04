@@ -13,6 +13,8 @@ from app.content import router as content_router
 from app.institution_users import router as institution_users_router
 
 from app.institutions import router as institutions_router
+from app.classes import router as classes_router
+from app.subjects import router as subjects_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,7 +38,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "https://englishprep-ai.vercel.app",
     ],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
@@ -44,6 +46,8 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(institutions_router)
 app.include_router(institution_users_router)
+app.include_router(classes_router)
+app.include_router(subjects_router)
 app.include_router(exams_router)
 app.include_router(content_router)
 

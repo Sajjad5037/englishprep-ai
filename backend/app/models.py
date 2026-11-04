@@ -11,6 +11,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import UniqueConstraint
 from app.database import Base
+from sqlalchemy import Index, text
 class Passage(Base):
     """Reading passage belonging to one institution."""
 
@@ -118,6 +119,50 @@ class Exam(Base):
         onupdate=func.now(),
     )
 
+class AuthSession(Base):
+    """Stores persistent login sessions and refresh tokens."""
+
+    __tablename__ = "auth_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # SHA-256 hash of the refresh token.
+    # Never store the actual refresh token in the database.
+    refresh_token_hash = Column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    expires_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    last_used_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    revoked_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
 class ExamQuestion(Base):
     """A question included in an exam, with its position and exam snapshot."""
@@ -256,7 +301,61 @@ class Attempt(Base):
 
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
+class RetestPermission(Base):
+    """Records teacher-authorized retakes for individual students."""
 
+    __tablename__ = "retest_permissions"
+
+    __table_args__ = (
+        Index(
+            "uq_retest_permissions_active_student_exam",
+            "student_id",
+            "exam_id",
+            unique=True,
+            postgresql_where=text("used_at IS NULL"),
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    student_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    exam_id = Column(
+        Integer,
+        ForeignKey("exams.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    granted_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    granted_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    used_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    used_attempt_id = Column(
+        Integer,
+        ForeignKey("attempts.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+    )
 class StudentAnswer(Base):
     """A student's saved response to a question in an exam attempt."""
 
@@ -548,6 +647,192 @@ class ClassEnrollment(Base):
     )
 
     enrolled_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+
+class ExamClassAssignment(Base):
+    """Assigns exams to classes."""
+
+    __tablename__ = "exam_class_assignments"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "exam_id",
+            "class_id",
+            name="uq_exam_class_assignments_exam_class",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    exam_id = Column(
+        Integer,
+        ForeignKey("exams.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    class_id = Column(
+        Integer,
+        ForeignKey("classes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    assigned_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class Subject(Base):
+    """A subject offered by an institution."""
+
+    __tablename__ = "subjects"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "institution_id",
+            "name",
+            name="uq_subjects_institution_name",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    institution_id = Column(
+        Integer,
+        ForeignKey("institutions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    name = Column(
+        String(100),
+        nullable=False,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class ClassSubject(Base):
+    """Assigns a subject and teacher to a particular class."""
+
+    __tablename__ = "class_subjects"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "class_id",
+            "subject_id",
+            name="uq_class_subjects_class_subject",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    class_id = Column(
+        Integer,
+        ForeignKey("classes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    subject_id = Column(
+        Integer,
+        ForeignKey("subjects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    teacher_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class ClassSubjectEnrollment(Base):
+    """Enrols a student in a particular subject within their class."""
+
+    __tablename__ = "class_subject_enrollments"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "class_subject_id",
+            "student_id",
+            name="uq_class_subject_enrollments_subject_student",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    class_subject_id = Column(
+        Integer,
+        ForeignKey("class_subjects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    student_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    enrolled_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class ExamClassSubjectAssignment(Base):
+    """Assigns an exam to a specific subject within a class."""
+
+    __tablename__ = "exam_class_subject_assignments"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "exam_id",
+            "class_subject_id",
+            name="uq_exam_class_subject_assignments_exam_subject",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    exam_id = Column(
+        Integer,
+        ForeignKey("exams.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    class_subject_id = Column(
+        Integer,
+        ForeignKey("class_subjects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    assigned_at = Column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),

@@ -7,18 +7,28 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from app.ai_exam_generation import generate_ai_exam
 
+from sqlalchemy import func
 from app.database import get_db
 from app.models import (
     Attempt,
+    RetestPermission,
+    ClassEnrollment,
+    ClassSubject,
     Evaluation,
     Exam,
+    ExamClassAssignment,
+    ExamClassSubjectAssignment,
     ExamQuestion,
     Institution,
     Passage,
     Question,
+    SchoolClass,
     StudentAnswer,
+    Subject,
     User,
+    ClassSubjectEnrollment,
 )
 from app.evaluation_service import evaluate_submitted_answer
 router = APIRouter(
@@ -34,6 +44,7 @@ class ExamQuestionCreate(BaseModel):
 
 class StudentAnswerSave(BaseModel):
     answer_text: str = Field(max_length=20000)
+
 class ExamCreate(BaseModel):
     title: str = Field(min_length=2, max_length=200)
     subject: str = Field(
@@ -44,7 +55,124 @@ class ExamCreate(BaseModel):
     level: str | None = Field(default=None, max_length=50)
     instructions: str | None = None
     duration_minutes: int | None = Field(default=None, gt=0, le=600)
+    class_subject_id: int = Field(gt=0)
 
+class AIQuestionTypeConfig(BaseModel):
+    question_type: str = Field(min_length=2, max_length=50)
+    count: int = Field(gt=0, le=100)
+    marks_per_question: int = Field(ge=1, le=100)
+
+
+class AIPassageBlueprint(BaseModel):
+    question_types: list[AIQuestionTypeConfig] = Field(min_length=1)
+
+
+class AIGenerateExamRequest(BaseModel):
+    class_subject_id: int = Field(gt=0)
+
+    level: str = Field(min_length=1, max_length=50)
+    topic: str = Field(min_length=2, max_length=500)
+
+    include_passages: bool
+
+    passage_count: int = Field(default=0, ge=0, le=10)
+
+    # Used when include_passages is True.
+    passages: list[AIPassageBlueprint] = Field(default_factory=list)
+
+    # Used when include_passages is False.
+    standalone_question_types: list[AIQuestionTypeConfig] = Field(
+        default_factory=list
+    )
+
+VALID_AI_QUESTION_TYPES = {
+    "Short answer",
+    "Inference",
+    "Multiple choice",
+    "Language analysis",
+    "Vocabulary",
+    "Extended response",
+}
+
+
+def validate_ai_exam_request(request: AIGenerateExamRequest):
+    """Validate the teacher's AI examination blueprint."""
+
+    if request.include_passages:
+        if request.passage_count < 1:
+            raise HTTPException(
+                status_code=422,
+                detail="At least one passage is required.",
+            )
+
+        if len(request.passages) != request.passage_count:
+            raise HTTPException(
+                status_code=422,
+                detail="Passage count does not match the passage configuration.",
+            )
+
+        if request.standalone_question_types:
+            raise HTTPException(
+                status_code=422,
+                detail="Standalone questions cannot be configured when passages are enabled.",
+            )
+
+        question_groups = [
+            passage.question_types
+            for passage in request.passages
+        ]
+
+    else:
+        if request.passage_count != 0 or request.passages:
+            raise HTTPException(
+                status_code=422,
+                detail="Passage configuration must be empty when passages are disabled.",
+            )
+
+        if not request.standalone_question_types:
+            raise HTTPException(
+                status_code=422,
+                detail="At least one question type must be selected.",
+            )
+
+        question_groups = [request.standalone_question_types]
+
+    total_questions = 0
+
+    for group_index, question_types in enumerate(question_groups):
+
+        if not question_types:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Question types are missing from configuration {group_index + 1}.",
+            )
+
+        selected_types = set()
+
+        for item in question_types:
+
+            if item.question_type not in VALID_AI_QUESTION_TYPES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unsupported question type: {item.question_type}",
+                )
+
+            if item.question_type in selected_types:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Duplicate question type: {item.question_type}",
+                )
+
+            selected_types.add(item.question_type)
+            total_questions += item.count
+
+    if total_questions > 30:
+        raise HTTPException(
+            status_code=422,
+            detail="An AI-generated examination cannot exceed 100 questions.",
+        )
+
+    return total_questions
 
 def require_institution_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
@@ -173,12 +301,43 @@ def list_exams(
     db: Session = Depends(get_db),
     user: User = Depends(require_institution_user),
 ):
-    """List exams belonging to the logged-in user's institution."""
+    """List exams assigned to the logged-in user's subjects."""
+
+    statement = select(Exam).where(
+        Exam.institution_id == user.institution_id
+    )
+
+    # Teachers only see exams assigned to subjects they currently teach.
+    if user.role == "teacher":
+        statement = (
+            statement
+            .join(
+                ExamClassSubjectAssignment,
+                ExamClassSubjectAssignment.exam_id == Exam.id,
+            )
+            .join(
+                ClassSubject,
+                ClassSubject.id
+                == ExamClassSubjectAssignment.class_subject_id,
+            )
+            .join(
+                SchoolClass,
+                SchoolClass.id == ClassSubject.class_id,
+            )
+            .join(
+                Subject,
+                Subject.id == ClassSubject.subject_id,
+            )
+            .where(
+                ClassSubject.teacher_id == user.id,
+                SchoolClass.institution_id == user.institution_id,
+                Subject.institution_id == user.institution_id,
+            )
+            .distinct()
+        )
 
     exams = db.scalars(
-        select(Exam)
-        .where(Exam.institution_id == user.institution_id)
-        .order_by(Exam.id.desc())
+        statement.order_by(Exam.id.desc())
     ).all()
 
     return {
@@ -186,28 +345,446 @@ def list_exams(
     }
 
 
+
+@router.post(
+    "/{exam_id}/students/{student_id}/allow-retest",
+    status_code=status.HTTP_201_CREATED,
+)
+def allow_student_retest(
+    exam_id: int,
+    student_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_user),
+):
+    """Grant a student permission to retake a submitted examination."""
+
+    # 1. Verify that the examination belongs to this institution.
+    exam = db.scalar(
+        select(Exam).where(
+            Exam.id == exam_id,
+            Exam.institution_id == user.institution_id,
+        )
+    )
+
+    if exam is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Examination not found.",
+        )
+
+    # 2. Verify that the student belongs to this institution.
+    student = db.scalar(
+        select(User).where(
+            User.id == student_id,
+            User.institution_id == user.institution_id,
+            User.role == "student",
+            User.is_active.is_(True),
+        )
+    )
+
+    if student is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student not found in your institution.",
+        )
+
+    # 3. Verify that the student is enrolled in a class subject
+    # to which this examination is assigned.
+    access_query = (
+        select(ClassSubject.id)
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .join(
+            ExamClassSubjectAssignment,
+            ExamClassSubjectAssignment.class_subject_id
+            == ClassSubject.id,
+        )
+        .join(
+            ClassSubjectEnrollment,
+            ClassSubjectEnrollment.class_subject_id
+            == ClassSubject.id,
+        )
+        .where(
+            ExamClassSubjectAssignment.exam_id == exam.id,
+            ClassSubjectEnrollment.student_id == student.id,
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+    )
+
+    # Teachers can only grant retests for subjects they currently teach.
+    if user.role == "teacher":
+        access_query = access_query.where(
+            ClassSubject.teacher_id == user.id
+        )
+    elif user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not permitted to grant retests.",
+        )
+
+    eligible_class_subject = db.scalar(access_query.limit(1))
+
+    if eligible_class_subject is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "The student is not enrolled in a class subject "
+                "assigned to this examination, or you are not "
+                "authorised to manage it."
+            ),
+        )
+
+    # 4. Ensure that the student has already submitted this examination.
+    submitted_attempt = db.scalar(
+        select(Attempt.id)
+        .where(
+            Attempt.exam_id == exam.id,
+            Attempt.user_id == student.id,
+            Attempt.status == "submitted",
+        )
+        .limit(1)
+    )
+
+    if submitted_attempt is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The student has not submitted this examination yet.",
+        )
+
+    # 5. Prevent duplicate unused retest permissions.
+    existing_permission = db.scalar(
+        select(RetestPermission).where(
+            RetestPermission.exam_id == exam.id,
+            RetestPermission.student_id == student.id,
+            RetestPermission.used_at.is_(None),
+        )
+    )
+
+    if existing_permission is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An unused retest permission already exists for this student.",
+        )
+
+    # 6. Create the permission.
+    permission = RetestPermission(
+        student_id=student.id,
+        exam_id=exam.id,
+        granted_by_user_id=user.id,
+    )
+
+    db.add(permission)
+
+    try:
+        db.commit()
+        db.refresh(permission)
+
+    except IntegrityError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A retest permission already exists for this student.",
+        )
+
+    return {
+        "message": "Retest permission granted successfully.",
+        "permission_id": permission.id,
+        "student_id": student.id,
+        "student_name": student.full_name,
+        "exam_id": exam.id,
+        "exam_title": exam.title,
+        "granted_at": permission.granted_at,
+    }
+
+
+@router.get("/teacher/results")
+def get_teacher_student_results(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_user),
+):
+    """Return submitted student results for subjects currently taught by the user."""
+
+    statement = (
+        select(
+            Attempt,
+            Exam,
+            User,
+            ClassSubject,
+            SchoolClass,
+            Subject,
+        )
+        .join(
+            Exam,
+            Exam.id == Attempt.exam_id,
+        )
+        .join(
+            User,
+            User.id == Attempt.user_id,
+        )
+        .join(
+            ExamClassSubjectAssignment,
+            ExamClassSubjectAssignment.exam_id == Exam.id,
+        )
+        .join(
+            ClassSubject,
+            ClassSubject.id
+            == ExamClassSubjectAssignment.class_subject_id,
+        )
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            Exam.institution_id == user.institution_id,
+            Attempt.status == "submitted",
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+    )
+
+    # Teachers only see results for their currently assigned subjects.
+    if user.role == "teacher":
+        statement = statement.where(
+            ClassSubject.teacher_id == user.id
+        )
+
+    rows = db.execute(
+        statement.order_by(Attempt.submitted_at.desc())
+    ).all()
+
+    if not rows:
+        return {"items": []}
+
+    # Keep one result entry per attempt.
+    attempts_by_id = {}
+
+    for row in rows:
+        attempt = row[0]
+        attempts_by_id.setdefault(attempt.id, row)
+
+    attempt_ids = list(attempts_by_id.keys())
+
+    # Retrieve all submitted answers.
+    answers = db.scalars(
+        select(StudentAnswer)
+        .where(StudentAnswer.attempt_id.in_(attempt_ids))
+        .order_by(
+            StudentAnswer.attempt_id,
+            StudentAnswer.id,
+        )
+    ).all()
+
+    answer_ids = [answer.id for answer in answers]
+
+    # Retrieve evaluations associated with those answers.
+    evaluations = []
+
+    if answer_ids:
+        evaluations = db.scalars(
+            select(Evaluation).where(
+                Evaluation.student_answer_id.in_(answer_ids)
+            )
+        ).all()
+
+    evaluation_by_answer = {
+        evaluation.student_answer_id: evaluation
+        for evaluation in evaluations
+    }
+
+    answers_by_attempt = {}
+
+    for answer in answers:
+        answers_by_attempt.setdefault(
+            answer.attempt_id, []
+        ).append(answer)
+
+    items = []
+
+    for attempt_id, row in attempts_by_id.items():
+        (
+            attempt,
+            exam,
+            student,
+            class_subject,
+            school_class,
+            subject,
+        ) = row
+
+        attempt_answers = answers_by_attempt.get(
+            attempt_id, []
+        )
+
+        question_results = []
+
+        completed = 0
+        failed = 0
+        pending = 0
+        total_marks_awarded = 0
+        total_max_marks = 0
+
+        for answer in attempt_answers:
+            evaluation = evaluation_by_answer.get(answer.id)
+
+            snapshot = answer.submitted_snapshot or {}
+            question_snapshot = snapshot.get("question", {})
+
+            max_marks = (
+                evaluation.max_marks
+                if evaluation and evaluation.max_marks is not None
+                else question_snapshot.get("marks", 0)
+            )
+
+            marks_awarded = None
+            evaluation_status = (
+                evaluation.status if evaluation else "pending"
+            )
+
+            if evaluation_status == "completed":
+                completed += 1
+                marks_awarded = evaluation.marks_awarded or 0
+                total_marks_awarded += marks_awarded
+
+            elif evaluation_status == "failed":
+                failed += 1
+
+            else:
+                pending += 1
+
+            total_max_marks += max_marks or 0
+
+            question_results.append({
+                "question_id": answer.question_id,
+                "position": snapshot.get("position"),
+                "prompt": question_snapshot.get("prompt"),
+                "answer_text": snapshot.get(
+                    "answer_text",
+                    answer.answer_text,
+                ),
+                "reference_answer": question_snapshot.get("correct_answer"),
+                "marking_criteria": question_snapshot.get("marking_criteria") or [],
+                "evaluation_status": evaluation_status,
+                "marks_awarded": marks_awarded,
+                "max_marks": max_marks,
+                "criterion_results": (
+                    evaluation.criterion_results or []
+                    if evaluation else []
+                ),
+                "feedback": (
+                    evaluation.feedback
+                    if evaluation else None
+                ),
+            })
+
+        question_results.sort(
+            key=lambda item: (
+                item["position"] is None,
+                item["position"] or 0,
+            )
+        )
+
+        if failed:
+            overall_evaluation_status = "failed"
+        elif pending:
+            overall_evaluation_status = "pending"
+        else:
+            overall_evaluation_status = "completed"
+
+        items.append({
+            "attempt_id": attempt.id,
+            "exam_id": exam.id,
+            "exam_title": exam.title,
+            "subject_name": subject.name,
+            "class_name": school_class.name,
+            "student_id": student.id,
+            "student_name": student.full_name,
+            "student_email": student.email,
+            "attempt_status": attempt.status,
+            "started_at": attempt.started_at,
+            "submitted_at": attempt.submitted_at,
+            "evaluation_status": overall_evaluation_status,
+            "evaluation_summary": {
+                "total": len(attempt_answers),
+                "completed": completed,
+                "failed": failed,
+                "pending": pending,
+                "marks_awarded": total_marks_awarded,
+                "max_marks": total_max_marks,
+            },
+            "question_results": question_results,
+        })
+
+    return {"items": items}
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_exam(
     request: ExamCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_institution_user),
 ):
-    """Create a draft exam for the logged-in user's institution."""
+    """Create a draft exam assigned to a specific class subject."""
 
     title = request.title.strip()
-    subject = request.subject.strip()
 
-    if not title or not subject:
+    if not title:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Exam title and subject are required.",
+            detail="Exam title is required.",
         )
 
+    # Retrieve the selected class subject and verify ownership.
+    result = db.execute(
+        select(ClassSubject, Subject)
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            ClassSubject.id == request.class_subject_id,
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+    ).first()
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Selected class subject was not found.",
+        )
+
+    class_subject, subject = result
+
+    # Teachers can only create exams for subjects they teach.
+    if (
+        user.role == "teacher"
+        and class_subject.teacher_id != user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create exams for your assigned subjects.",
+        )
+
+    # Use the actual subject name from the database.
     exam = Exam(
         institution_id=user.institution_id,
         created_by_user_id=user.id,
         title=title,
-        subject=subject,
+        subject=subject.name,
         level=request.level.strip() if request.level else None,
         instructions=request.instructions,
         duration_minutes=request.duration_minutes,
@@ -215,10 +792,263 @@ def create_exam(
     )
 
     db.add(exam)
-    db.commit()
-    db.refresh(exam)
 
-    return exam_to_dict(exam)
+    try:
+        db.flush()
+
+        # Associate the exam with the selected class subject.
+        assignment = ExamClassSubjectAssignment(
+            exam_id=exam.id,
+            class_subject_id=class_subject.id,
+        )
+
+        db.add(assignment)
+
+        db.commit()
+        db.refresh(exam)
+
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Unable to create the exam assignment.",
+        )
+
+    response = exam_to_dict(exam)
+    response["class_subject_id"] = class_subject.id
+
+    return response
+
+
+
+
+@router.post("/ai-generate", status_code=status.HTTP_201_CREATED)
+def generate_exam_with_ai(
+    request: AIGenerateExamRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_user),
+):
+    """Generate an examination using AI and save it as a draft."""
+
+    # 1. Validate the teacher's examination blueprint.
+    total_questions = validate_ai_exam_request(request)
+
+    # 2. Verify the selected class subject belongs to the institution.
+    result = db.execute(
+        select(ClassSubject, Subject)
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            ClassSubject.id == request.class_subject_id,
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+    ).first()
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Selected class subject was not found.",
+        )
+
+    class_subject, subject = result
+
+    # Teachers can only generate exams for their assigned subjects.
+    if (
+        user.role == "teacher"
+        and class_subject.teacher_id != user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only generate exams for your assigned subjects.",
+        )
+
+    # 3. Calculate the total marks independently in Python.
+    if request.include_passages:
+        total_marks = sum(
+            item.count * item.marks_per_question
+            for passage in request.passages
+            for item in passage.question_types
+        )
+    else:
+        total_marks = sum(
+            item.count * item.marks_per_question
+            for item in request.standalone_question_types
+        )
+
+    # 4. Generate and validate the examination before database writes.
+    configuration = request.model_dump()
+
+    try:
+        generation_result = generate_ai_exam(configuration)
+        generated = generation_result["exam"]
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI generated an invalid examination: {str(exc)}",
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="AI examination generation failed. Please try again.",
+        )
+
+    # 5. Save the complete examination in one transaction.
+    try:
+        exam = Exam(
+            institution_id=user.institution_id,
+            created_by_user_id=user.id,
+            title=generated["title"].strip(),
+            subject=subject.name,
+            level=request.level.strip(),
+            instructions=generated.get("instructions"),
+            duration_minutes=None,
+            status="Draft",
+        )
+
+        db.add(exam)
+        db.flush()
+
+        # Associate the exam with the selected class subject.
+        db.add(
+            ExamClassSubjectAssignment(
+                exam_id=exam.id,
+                class_subject_id=class_subject.id,
+            )
+        )
+
+        position = 1
+
+        def save_question(question_data, passage_id=None):
+            nonlocal position
+
+            question = Question(
+                institution_id=user.institution_id,
+                passage_id=passage_id,
+                created_by_user_id=user.id,
+                prompt=question_data["prompt"].strip(),
+                question_type=question_data["question_type"],
+                options=question_data.get("options"),
+                correct_answer=question_data["correct_answer"].strip(),
+                marking_criteria=question_data["marking_criteria"],
+                marks=question_data["marks"],
+            )
+
+            db.add(question)
+            db.flush()
+
+            exam_question = ExamQuestion(
+                exam_id=exam.id,
+                question_id=question.id,
+                position=position,
+                marks_override=None,
+            )
+
+            db.add(exam_question)
+
+            saved_question = {
+                "id": question.id,
+                "position": position,
+                "question_type": question.question_type,
+                "prompt": question.prompt,
+                "options": question.options,
+                "correct_answer": question.correct_answer,
+                "marking_criteria": question.marking_criteria,
+                "marks": question.marks,
+                "passage_id": passage_id,
+            }
+
+            position += 1
+
+            return saved_question
+
+        saved_passages = []
+        saved_standalone_questions = []
+
+        # 6. Save each passage and its associated questions.
+        if request.include_passages:
+
+            for generated_passage in generated["passages"]:
+
+                passage = Passage(
+                    institution_id=user.institution_id,
+                    created_by_user_id=user.id,
+                    title=generated_passage["title"].strip(),
+                    category=generated_passage["category"].strip(),
+                    content=generated_passage["content"].strip(),
+                    status="Draft",
+                )
+
+                db.add(passage)
+                db.flush()
+
+                saved_questions = []
+
+                for question_data in generated_passage["questions"]:
+                    saved_questions.append(
+                        save_question(
+                            question_data,
+                            passage_id=passage.id,
+                        )
+                    )
+
+                saved_passages.append({
+                    "id": passage.id,
+                    "title": passage.title,
+                    "category": passage.category,
+                    "content": passage.content,
+                    "questions": saved_questions,
+                })
+
+        # 7. Save standalone questions without passages.
+        else:
+
+            for question_data in generated["standalone_questions"]:
+                saved_standalone_questions.append(
+                    save_question(question_data)
+                )
+
+        # Commit the exam, assignments, passages and questions together.
+        db.commit()
+        db.refresh(exam)
+
+    except IntegrityError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Unable to save the generated examination.",
+        )
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while saving the generated examination.",
+        )
+
+    return {
+        "message": "AI examination generated and saved successfully.",
+        "exam": exam_to_dict(exam),
+        "class_subject_id": class_subject.id,
+        "passages": saved_passages,
+        "standalone_questions": saved_standalone_questions,
+        "total_questions": total_questions,
+        "total_marks": total_marks,
+        "model_id": generation_result["model_id"],
+        "prompt_version": generation_result["prompt_version"],
+        "status": "Draft",
+    }
+
 
 @router.post("/{exam_id}/questions", status_code=status.HTTP_201_CREATED)
 def add_question_to_exam(
@@ -242,6 +1072,37 @@ def add_question_to_exam(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Exam not found.",
         )
+    # Only the currently assigned subject teacher or
+    # an institution administrator can manage this exam.
+    if user.role == "teacher":
+        teacher_has_access = db.scalar(
+            select(ClassSubject.id)
+            .join(
+                ExamClassSubjectAssignment,
+                ExamClassSubjectAssignment.class_subject_id == ClassSubject.id,
+            )
+            .join(
+                SchoolClass,
+                SchoolClass.id == ClassSubject.class_id,
+            )
+            .join(
+                Subject,
+                Subject.id == ClassSubject.subject_id,
+            )
+            .where(
+                ExamClassSubjectAssignment.exam_id == exam.id,
+                ClassSubject.teacher_id == user.id,
+                SchoolClass.institution_id == user.institution_id,
+                Subject.institution_id == user.institution_id,
+            )
+            .limit(1)
+        )
+
+        if teacher_has_access is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not assigned to this exam's subject.",
+            )
 
     if exam.status != "Draft":
         raise HTTPException(
@@ -384,6 +1245,37 @@ def publish_exam(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Exam not found.",
         )
+   # Only the currently assigned subject teacher or
+# an institution administrator can publish this exam.
+    if user.role == "teacher":
+        teacher_has_access = db.scalar(
+            select(ClassSubject.id)
+            .join(
+                ExamClassSubjectAssignment,
+                ExamClassSubjectAssignment.class_subject_id == ClassSubject.id,
+            )
+            .join(
+                SchoolClass,
+                SchoolClass.id == ClassSubject.class_id,
+            )
+            .join(
+                Subject,
+                Subject.id == ClassSubject.subject_id,
+            )
+            .where(
+                ExamClassSubjectAssignment.exam_id == exam.id,
+                ClassSubject.teacher_id == user.id,
+                SchoolClass.institution_id == user.institution_id,
+                Subject.institution_id == user.institution_id,
+            )
+            .limit(1)
+        )
+
+        if teacher_has_access is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not assigned to this exam's subject.",
+            )
 
     if exam.status != "Draft":
         raise HTTPException(
@@ -463,10 +1355,34 @@ def list_available_exams(
 
     exams = db.scalars(
         select(Exam)
+        .join(
+            ExamClassSubjectAssignment,
+            ExamClassSubjectAssignment.exam_id == Exam.id,
+        )
+        .join(
+            ClassSubject,
+            ClassSubject.id == ExamClassSubjectAssignment.class_subject_id,
+        )
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .join(
+            ClassSubjectEnrollment,
+            ClassSubjectEnrollment.class_subject_id == ClassSubject.id,
+        )
         .where(
             Exam.institution_id == user.institution_id,
             Exam.status == "Published",
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+            ClassSubjectEnrollment.student_id == user.id,
         )
+        .distinct()
         .order_by(Exam.id.desc())
     ).all()
 
@@ -501,6 +1417,16 @@ def list_available_exams(
             ExamQuestion.exam_id.in_(exam_ids)
         )
     ).all()
+    # Retrieve unused retest permissions for this student.
+    retest_permissions = db.scalars(
+        select(RetestPermission.exam_id).where(
+            RetestPermission.student_id == user.id,
+            RetestPermission.exam_id.in_(exam_ids),
+            RetestPermission.used_at.is_(None),
+        )
+    ).all()
+
+    retest_allowed_exam_ids = set(retest_permissions)
 
     question_counts = {}
 
@@ -567,6 +1493,7 @@ def list_available_exams(
             "attempt_status": (
                 attempt.status if attempt else "not_started"
             ),
+            "retest_allowed": exam.id in retest_allowed_exam_ids,
             "evaluation_status": None,
             "evaluation_summary": None,
         }
@@ -657,6 +1584,41 @@ def get_student_exam(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Published exam not found.",
         )
+    # Verify that the exam is assigned to one of the student's classes.
+    # Verify that the student is enrolled in the subject
+    # to which this exam is assigned.
+    student_has_access = db.scalar(
+        select(ClassSubjectEnrollment.id)
+        .join(
+            ClassSubject,
+            ClassSubject.id == ClassSubjectEnrollment.class_subject_id,
+        )
+        .join(
+            ExamClassSubjectAssignment,
+            ExamClassSubjectAssignment.class_subject_id == ClassSubject.id,
+        )
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            ClassSubjectEnrollment.student_id == user.id,
+            ExamClassSubjectAssignment.exam_id == exam.id,
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+        .limit(1)
+    )
+
+    if student_has_access is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Published exam not found.",
+        )
 
     assignments = db.scalars(
         select(ExamQuestion)
@@ -729,6 +1691,41 @@ def start_student_attempt(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Published exam not found.",
         )
+    # Verify that the exam is assigned to one of the student's classes.
+    # Verify that the student is enrolled in the subject
+    # to which this exam is assigned.
+    student_has_access = db.scalar(
+        select(ClassSubjectEnrollment.id)
+        .join(
+            ClassSubject,
+            ClassSubject.id == ClassSubjectEnrollment.class_subject_id,
+        )
+        .join(
+            ExamClassSubjectAssignment,
+            ExamClassSubjectAssignment.class_subject_id == ClassSubject.id,
+        )
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            ClassSubjectEnrollment.student_id == user.id,
+            ExamClassSubjectAssignment.exam_id == exam.id,
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+        .limit(1)
+    )
+
+    if student_has_access is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Published exam not found.",
+        )
 
     # Find the student's latest attempt for this exam.
     existing_attempt = db.scalar(
@@ -745,11 +1742,30 @@ def start_student_attempt(
     )
 
     # Do not allow a submitted exam to be started again.
+    # Check whether the student has permission to retake
+    # an examination they have already submitted.
+    retest_permission = None
+
     if existing_attempt and existing_attempt.status == "submitted":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="You have already submitted this exam. Please view your results.",
+
+        retest_permission = db.scalar(
+            select(RetestPermission)
+            .where(
+                RetestPermission.student_id == user.id,
+                RetestPermission.exam_id == exam.id,
+                RetestPermission.used_at.is_(None),
+            )
+            .with_for_update()
         )
+
+        if retest_permission is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "You have already submitted this exam. "
+                    "Your teacher must allow a retest."
+                ),
+            )
 
     # Resume an existing unfinished attempt.
     if existing_attempt and existing_attempt.status == "in_progress":
@@ -789,6 +1805,7 @@ def start_student_attempt(
         )
 
     # Create a new attempt only when none exists.
+    # Create a new attempt.
     attempt = Attempt(
         user_id=user.id,
         exam_id=exam.id,
@@ -796,8 +1813,26 @@ def start_student_attempt(
     )
 
     db.add(attempt)
-    db.commit()
-    db.refresh(attempt)
+
+    try:
+        db.flush()
+
+        # Consume the retest permission only after
+        # the new attempt has been created successfully.
+        if retest_permission is not None:
+            retest_permission.used_at = func.now()
+            retest_permission.used_attempt_id = attempt.id
+
+        db.commit()
+        db.refresh(attempt)
+
+    except IntegrityError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Unable to create the examination attempt.",
+        )
 
     return {
         "attempt_id": attempt.id,
@@ -829,6 +1864,41 @@ def save_student_answer(
     )
 
     if attempt is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam attempt not found.",
+        )
+    # Verify that the exam is assigned to one of the student's classes.
+    # Verify that the student is enrolled in the subject
+    # assigned to this exam.
+    student_has_access = db.scalar(
+        select(ClassSubjectEnrollment.id)
+        .join(
+            ClassSubject,
+            ClassSubject.id == ClassSubjectEnrollment.class_subject_id,
+        )
+        .join(
+            ExamClassSubjectAssignment,
+            ExamClassSubjectAssignment.class_subject_id == ClassSubject.id,
+        )
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            ClassSubjectEnrollment.student_id == user.id,
+            ExamClassSubjectAssignment.exam_id == attempt.exam_id,
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+        .limit(1)
+    )
+
+    if student_has_access is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Exam attempt not found.",
@@ -903,6 +1973,41 @@ def submit_student_attempt(
     )
 
     if attempt is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam attempt not found.",
+        )
+    # Verify that the exam is assigned to one of the student's classes.
+    # Verify that the student is enrolled in the subject
+    # assigned to this exam.
+    student_has_access = db.scalar(
+        select(ClassSubjectEnrollment.id)
+        .join(
+            ClassSubject,
+            ClassSubject.id == ClassSubjectEnrollment.class_subject_id,
+        )
+        .join(
+            ExamClassSubjectAssignment,
+            ExamClassSubjectAssignment.class_subject_id == ClassSubject.id,
+        )
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            ClassSubjectEnrollment.student_id == user.id,
+            ExamClassSubjectAssignment.exam_id == attempt.exam_id,
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+        .limit(1)
+    )
+
+    if student_has_access is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Exam attempt not found.",
@@ -1166,6 +2271,41 @@ def get_student_attempt_results(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Exam attempt not found.",
         )
+    # Verify that the exam is assigned to one of the student's classes.
+    # Verify that the student is enrolled in the subject
+    # assigned to this exam.
+    student_has_access = db.scalar(
+        select(ClassSubjectEnrollment.id)
+        .join(
+            ClassSubject,
+            ClassSubject.id == ClassSubjectEnrollment.class_subject_id,
+        )
+        .join(
+            ExamClassSubjectAssignment,
+            ExamClassSubjectAssignment.class_subject_id == ClassSubject.id,
+        )
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            ClassSubjectEnrollment.student_id == user.id,
+            ExamClassSubjectAssignment.exam_id == attempt.exam_id,
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+        .limit(1)
+    )
+
+    if student_has_access is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam attempt not found.",
+        )
 
     if attempt.status != "submitted":
         raise HTTPException(
@@ -1241,3 +2381,80 @@ def get_student_attempt_results(
         },
         "question_results": question_results,
     }
+@router.get("/available-class-subjects")
+def get_available_class_subjects(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_user),
+):
+    """Return class-subject combinations available to the current user."""
+
+    statement = (
+        select(ClassSubject, SchoolClass, Subject)
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            SchoolClass.institution_id == user.institution_id
+        )
+    )
+
+    # Teachers can only create exams for subjects they teach.
+    if user.role == "teacher":
+        statement = statement.where(
+            ClassSubject.teacher_id == user.id
+        )
+
+    rows = db.execute(
+        statement.order_by(
+            SchoolClass.name,
+            Subject.name,
+        )
+    ).all()
+
+    return {
+        "items": [
+            {
+                "id": class_subject.id,
+                "class_id": school_class.id,
+                "class_name": school_class.name,
+                "subject_id": subject.id,
+                "subject_name": subject.name,
+                "teacher_id": class_subject.teacher_id,
+            }
+            for class_subject, school_class, subject in rows
+        ]
+    }
+@router.get("/available-classes")
+def get_available_exam_classes(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_user),
+):
+    """Return classes the current user is allowed to assign exams to."""
+
+    statement = select(SchoolClass).where(
+        SchoolClass.institution_id == user.institution_id
+    )
+
+    # Teachers can only see classes assigned to them.
+    if user.role == "teacher":
+        statement = statement.where(
+            SchoolClass.teacher_id == user.id
+        )
+
+    classes = db.scalars(
+        statement.order_by(SchoolClass.name)
+    ).all()
+
+    return [
+        {
+            "id": school_class.id,
+            "name": school_class.name,
+            "teacher_id": school_class.teacher_id,
+        }
+        for school_class in classes
+    ]
