@@ -80,6 +80,47 @@ const styles = `
 .teacher-secondary { min-height:40px; padding:0 13px; border:1px solid #dce4eb; border-radius:8px; color:#536477; background:white; cursor:pointer; }
 .teacher-footer { margin-top:22px; color:#9aa4b1; font-size:10px; }
 @media(max-width:800px) { .teacher-app { grid-template-columns:1fr; } .teacher-sidebar { padding:15px; } .teacher-brand { padding-bottom:18px; } .teacher-nav { grid-template-columns:repeat(2,minmax(0,1fr)); } .teacher-content { padding:20px 14px; } .teacher-heading { align-items:flex-start; flex-direction:column; } .teacher-stats { grid-template-columns:1fr; } .teacher-panel-head { align-items:flex-start; flex-direction:column; } .teacher-search { width:100%; } }
+/* Teacher Student Results Filters */
+.teacher-results-filters {
+  margin: 20px 0;
+  padding: 20px;
+  background: #f8fafc;
+  border: 1px solid #e5eaf1;
+  border-radius: 12px;
+}
+
+.teacher-results-filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.teacher-results-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.teacher-results-filter-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.teacher-results-filter-input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  font-size: 14px;
+  box-sizing: border-box;
+}
 `;
 
 const navigation = [
@@ -96,6 +137,101 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [studentResults, setStudentResults] = useState([]);
   const [loadingStudentResults, setLoadingStudentResults] = useState(false);
   const [studentResultsError, setStudentResultsError] = useState("");
+  // Student results filters
+  const [resultsDateFilter, setResultsDateFilter] = useState("");
+  const [resultsSubjectFilter, setResultsSubjectFilter] = useState("");
+  const [resultsClassFilter, setResultsClassFilter] = useState("");
+  const [resultsExamFilter, setResultsExamFilter] = useState("");
+  const [resultsStatusFilter, setResultsStatusFilter] = useState("");
+  const [resultsSearch, setResultsSearch] = useState("");
+  // Unique subjects in the teacher's results
+  const resultSubjects = [
+    ...new Set(
+      studentResults.map((result) => result.subject_name)
+    ),
+  ].filter(Boolean).sort();
+
+  // Unique classes
+  const resultClasses = [
+    ...new Set(
+      studentResults.map((result) => result.class_name)
+    ),
+  ].filter(Boolean).sort();
+
+  // Unique examinations
+  const resultExams = Array.from(
+    new Map(
+      studentResults.map((result) => [
+        String(result.exam_id),
+        {
+          id: String(result.exam_id),
+          title: result.exam_title,
+        },
+      ])
+    ).values()
+  ).sort((a, b) => a.title.localeCompare(b.title));
+
+  // Apply all selected filters together
+  const filteredStudentResults = studentResults.filter((result) => {
+    const searchText = resultsSearch.trim().toLowerCase();
+
+    let submissionDate = "";
+
+    if (result.submitted_at) {
+      const date = new Date(result.submitted_at);
+
+      if (!Number.isNaN(date.getTime())) {
+        submissionDate = [
+          date.getFullYear(),
+          String(date.getMonth() + 1).padStart(2, "0"),
+          String(date.getDate()).padStart(2, "0"),
+        ].join("-");
+      }
+    }
+
+    const matchesDate =
+      !resultsDateFilter ||
+      submissionDate === resultsDateFilter;
+
+    const matchesSubject =
+      !resultsSubjectFilter ||
+      result.subject_name === resultsSubjectFilter;
+
+    const matchesClass =
+      !resultsClassFilter ||
+      result.class_name === resultsClassFilter;
+
+    const matchesExam =
+      !resultsExamFilter ||
+      String(result.exam_id) === resultsExamFilter;
+
+    const matchesStatus =
+      !resultsStatusFilter ||
+      result.evaluation_status === resultsStatusFilter;
+
+    const matchesSearch =
+      !searchText ||
+      [
+        result.student_name,
+        result.student_email,
+        result.exam_title,
+        result.subject_name,
+        result.class_name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(searchText);
+
+    return (
+      matchesDate &&
+      matchesSubject &&
+      matchesClass &&
+      matchesExam &&
+      matchesStatus &&
+      matchesSearch
+    );
+  });
   const [retestLoadingAttemptId, setRetestLoadingAttemptId] = useState(null);
   const [selectedStudentResult, setSelectedStudentResult] = useState(null);
   const [currentReviewQuestionIndex, setCurrentReviewQuestionIndex] = useState(0);
@@ -1171,9 +1307,143 @@ async function loadAvailableClassSubjects() {
       </div>
     </div>
 
-    {studentResultsError && (
-      <div className="teacher-notice teacher-error" role="alert">
-        {studentResultsError}
+    {!loadingStudentResults && studentResults.length > 0 && (
+      <div className="teacher-results-filters">
+        <div className="teacher-results-filter-header">
+          <div>
+            <strong>
+              {filteredStudentResults.length}
+            </strong>{" "}
+            matching attempts
+            <span>
+              {" "}out of {studentResults.length}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="teacher-secondary"
+            onClick={() => {
+              setResultsDateFilter("");
+              setResultsSubjectFilter("");
+              setResultsClassFilter("");
+              setResultsExamFilter("");
+              setResultsStatusFilter("");
+              setResultsSearch("");
+            }}
+          >
+            Clear filters
+          </button>
+        </div>
+
+        <div className="teacher-results-filter-grid">
+          <div>
+            <label className="teacher-results-filter-label">
+              Submission date
+            </label>
+            <input
+              type="date"
+              className="teacher-results-filter-input"
+              value={resultsDateFilter}
+              onChange={(event) =>
+                setResultsDateFilter(event.target.value)
+              }
+            />
+          </div>
+
+          <div>
+            <label className="teacher-results-filter-label">
+              Subject
+            </label>
+            <select
+              className="teacher-results-filter-input"
+              value={resultsSubjectFilter}
+              onChange={(event) =>
+                setResultsSubjectFilter(event.target.value)
+              }
+            >
+              <option value="">All subjects</option>
+              {resultSubjects.map((subject) => (
+                <option key={subject} value={subject}>
+                  {subject}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="teacher-results-filter-label">
+              Class
+            </label>
+            <select
+              className="teacher-results-filter-input"
+              value={resultsClassFilter}
+              onChange={(event) =>
+                setResultsClassFilter(event.target.value)
+              }
+            >
+              <option value="">All classes</option>
+              {resultClasses.map((className) => (
+                <option key={className} value={className}>
+                  {className}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="teacher-results-filter-label">
+              Examination
+            </label>
+            <select
+              className="teacher-results-filter-input"
+              value={resultsExamFilter}
+              onChange={(event) =>
+                setResultsExamFilter(event.target.value)
+              }
+            >
+              <option value="">All examinations</option>
+              {resultExams.map((exam) => (
+                <option key={exam.id} value={exam.id}>
+                  {exam.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="teacher-results-filter-label">
+              Evaluation status
+            </label>
+            <select
+              className="teacher-results-filter-input"
+              value={resultsStatusFilter}
+              onChange={(event) =>
+                setResultsStatusFilter(event.target.value)
+              }
+            >
+              <option value="">All statuses</option>
+              <option value="completed">Completed</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="teacher-results-filter-label">
+              Search student or examination
+            </label>
+            <input
+              type="text"
+              className="teacher-results-filter-input"
+              value={resultsSearch}
+              onChange={(event) =>
+                setResultsSearch(event.target.value)
+              }
+              placeholder="Name, email or examination..."
+            />
+          </div>
+        </div>
       </div>
     )}
 
@@ -1201,7 +1471,7 @@ async function loadAvailableClassSubjects() {
           </thead>
 
           <tbody>
-            {studentResults.map((result) => (
+            {filteredStudentResults.map((result) => (
               <tr key={result.attempt_id}>
                 <td>
                   <strong>{result.student_name}</strong>
@@ -1299,6 +1569,20 @@ async function loadAvailableClassSubjects() {
                 </td>
               </tr>
             ))}
+          {filteredStudentResults.length === 0 && (
+            <tr>
+              <td
+                colSpan={7}
+                style={{
+                  padding: "30px",
+                  textAlign: "center",
+                  color: "#64748b",
+                }}
+              >
+                No examination results match your selected filters.
+              </td>
+            </tr>
+          )}
           </tbody>
         </table>
       </div>

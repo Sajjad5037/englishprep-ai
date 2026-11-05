@@ -15,7 +15,7 @@ import {
     FileText,
     BarChart3,
 } from "lucide-react";
-
+import { authenticatedFetch } from "./api";
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 ).replace(/\/$/, "");
@@ -197,6 +197,135 @@ const styles = `
 `;
 
 export default function InstitutionAdminDashboard({ user, accessToken, onLogout }) {
+  const [institutionStudentResults, setInstitutionStudentResults] =
+    useState([]);
+
+  const [loadingInstitutionStudentResults, setLoadingInstitutionStudentResults] =
+    useState(false);
+
+  const [institutionStudentResultsError, setInstitutionStudentResultsError] =
+    useState("");
+  const [selectedInstitutionResult, setSelectedInstitutionResult] =
+    useState(null);
+
+  const [currentInstitutionReviewQuestionIndex, setCurrentInstitutionReviewQuestionIndex] =
+    useState(0);
+  // Institution student results filters
+  const [resultsDateFilter, setResultsDateFilter] = useState("");
+  const [resultsTeacherFilter, setResultsTeacherFilter] = useState("");
+  const [resultsSubjectFilter, setResultsSubjectFilter] = useState("");
+  const [resultsClassFilter, setResultsClassFilter] = useState("");
+  const [resultsExamFilter, setResultsExamFilter] = useState("");
+  const [resultsStatusFilter, setResultsStatusFilter] = useState("");
+  const [resultsSearch, setResultsSearch] = useState("");
+  // Unique teachers available in the results
+  const resultTeachers = Array.from(
+    new Map(
+      institutionStudentResults.map((result) => [
+        String(result.teacher_id ?? ""),
+        {
+          id: String(result.teacher_id ?? ""),
+          name: result.teacher_name || "Unassigned",
+        },
+      ])
+    ).values()
+  ).sort((a, b) => a.name.localeCompare(b.name));
+
+  // Unique subjects
+  const resultSubjects = [
+    ...new Set(
+      institutionStudentResults.map((result) => result.subject_name)
+    ),
+  ].filter(Boolean).sort();
+
+  // Unique classes
+  const resultClasses = [
+    ...new Set(
+      institutionStudentResults.map((result) => result.class_name)
+    ),
+  ].filter(Boolean).sort();
+
+  // Unique examinations
+  const resultExams = Array.from(
+    new Map(
+      institutionStudentResults.map((result) => [
+        String(result.exam_id),
+        {
+          id: String(result.exam_id),
+          title: result.exam_title,
+        },
+      ])
+    ).values()
+  ).sort((a, b) => a.title.localeCompare(b.title));
+
+  // Apply all selected filters together
+  const filteredInstitutionStudentResults =
+    institutionStudentResults.filter((result) => {
+      const searchText = resultsSearch.trim().toLowerCase();
+
+      let submissionDate = "";
+
+      if (result.submitted_at) {
+        const date = new Date(result.submitted_at);
+
+        if (!Number.isNaN(date.getTime())) {
+          submissionDate = [
+            date.getFullYear(),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            String(date.getDate()).padStart(2, "0"),
+          ].join("-");
+        }
+      }
+
+      const matchesDate =
+        !resultsDateFilter ||
+        submissionDate === resultsDateFilter;
+
+      const matchesTeacher =
+        !resultsTeacherFilter ||
+        String(result.teacher_id ?? "") === resultsTeacherFilter;
+
+      const matchesSubject =
+        !resultsSubjectFilter ||
+        result.subject_name === resultsSubjectFilter;
+
+      const matchesClass =
+        !resultsClassFilter ||
+        result.class_name === resultsClassFilter;
+
+      const matchesExam =
+        !resultsExamFilter ||
+        String(result.exam_id) === resultsExamFilter;
+
+      const matchesStatus =
+        !resultsStatusFilter ||
+        result.evaluation_status === resultsStatusFilter;
+
+      const matchesSearch =
+        !searchText ||
+        [
+          result.student_name,
+          result.student_email,
+          result.exam_title,
+          result.subject_name,
+          result.class_name,
+          result.teacher_name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(searchText);
+
+      return (
+        matchesDate &&
+        matchesTeacher &&
+        matchesSubject &&
+        matchesClass &&
+        matchesExam &&
+        matchesStatus &&
+        matchesSearch
+      );
+    });
   const [activePage, setActivePage] = useState("Overview");
   const [members, setMembers] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -236,6 +365,41 @@ export default function InstitutionAdminDashboard({ user, accessToken, onLogout 
   const [invitation, setInvitation] = useState(null);
   const [copyStatus, setCopyStatus] = useState("");
 
+
+
+  async function loadInstitutionStudentResults() {
+    setLoadingInstitutionStudentResults(true);
+    setInstitutionStudentResultsError("");
+
+    try {
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/api/exams/institution/results`,
+        {},
+        accessToken
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Unable to load institution student results."
+        );
+      }
+
+      setInstitutionStudentResults(
+        Array.isArray(data.items) ? data.items : []
+      );
+
+    } catch (err) {
+      setInstitutionStudentResultsError(
+        err.message || "Unable to load student results."
+      );
+      setInstitutionStudentResults([]);
+
+    } finally {
+      setLoadingInstitutionStudentResults(false);
+    }
+  }
   async function loadMembers() {
     setLoading(true);
     setError("");
@@ -676,19 +840,23 @@ async function enrollStudent(event) {
   }, [accessToken]);
 
   useEffect(() => {
-  if (activePage === "Classes") {
-    loadClasses();
-  }
+    if (activePage === "Classes") {
+      loadClasses();
+    }
 
-  if (activePage === "Subjects") {
-    loadClasses();
-    loadMembers();
-    loadSubjects();
-    loadClassSubjects();
-  }
+    if (activePage === "Subjects") {
+      loadClasses();
+      loadMembers();
+      loadSubjects();
+      loadClassSubjects();
+    }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [activePage, accessToken]);
+    if (activePage === "Student results") {
+      loadInstitutionStudentResults();
+    }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage, accessToken]);
   const visibleMembers = members.filter((member) =>
     `${member.full_name || ""} ${member.email} ${member.role}`
       .toLowerCase()
@@ -1071,23 +1239,289 @@ const availableStudents = members.filter(
   )}
 
   {/* STUDENT RESULTS */}
-  {activePage === "Student results" && (
-    <section className="ia-panel">
-      <div className="ia-panel-head">
-        <div>
-          <h2>Student results</h2>
-          <p>
-            Review student attempts and monitor learning progress.
-          </p>
-        </div>
+  
+{/* STUDENT RESULTS */}
+{activePage === "Student results" && (
+  <section className="ia-panel">
+    <div className="ia-panel-head">
+      <div>
+        <h2>Student results</h2>
+        <p>
+          Review examination attempts and monitor performance
+          across all teachers, subjects and classes.
+        </p>
       </div>
+    </div>
 
-      <div className="ia-empty">
-        Student results will appear here once exam and reporting data
-        are connected to the institution.
-      </div>
-    </section>
-  )}
+    {loadingInstitutionStudentResults && (
+      <p>Loading student results...</p>
+    )}
+
+    {institutionStudentResultsError && (
+      <p style={{ color: "#b42318" }} role="alert">
+        {institutionStudentResultsError}
+      </p>
+    )}
+
+    {!loadingInstitutionStudentResults &&
+      !institutionStudentResultsError &&
+      institutionStudentResults.length === 0 && (
+        <div className="ia-empty">
+          No submitted examination results are available yet.
+        </div>
+      )}
+
+    {!loadingInstitutionStudentResults &&
+      institutionStudentResults.length > 0 && (
+        <>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "12px",
+              marginBottom: "18px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <strong>
+                {filteredInstitutionStudentResults.length}
+              </strong>{" "}
+              matching examination attempt(s)
+              <span style={{ color: "#64748b", marginLeft: "6px" }}>
+                out of {institutionStudentResults.length}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setResultsDateFilter("");
+                setResultsTeacherFilter("");
+                setResultsSubjectFilter("");
+                setResultsClassFilter("");
+                setResultsExamFilter("");
+                setResultsStatusFilter("");
+                setResultsSearch("");
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+              gap: "16px",
+              padding: "20px",
+              marginBottom: "22px",
+              background: "#f8fafc",
+              border: "1px solid #e5eaf1",
+              borderRadius: "12px",
+            }}
+          >
+            <div>
+              <label className="ia-field-label">Submission date</label>
+              <input
+                type="date"
+                className="ia-filter-input"
+                value={resultsDateFilter}
+                onChange={(event) => setResultsDateFilter(event.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="ia-field-label">Teacher</label>
+              <select
+                className="ia-filter-input"
+                value={resultsTeacherFilter}
+                onChange={(event) => setResultsTeacherFilter(event.target.value)}
+              >
+                <option value="">All teachers</option>
+                {resultTeachers.map((teacher) => (
+                  <option key={teacher.id} value={teacher.id}>
+                    {teacher.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="ia-field-label">Subject</label>
+              <select
+                className="ia-filter-input"
+                value={resultsSubjectFilter}
+                onChange={(event) => setResultsSubjectFilter(event.target.value)}
+              >
+                <option value="">All subjects</option>
+                {resultSubjects.map((subject) => (
+                  <option key={subject} value={subject}>
+                    {subject}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="ia-field-label">Class</label>
+              <select
+                className="ia-filter-input"
+                value={resultsClassFilter}
+                onChange={(event) => setResultsClassFilter(event.target.value)}
+              >
+                <option value="">All classes</option>
+                {resultClasses.map((className) => (
+                  <option key={className} value={className}>
+                    {className}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="ia-field-label">Examination</label>
+              <select
+                className="ia-filter-input"
+                value={resultsExamFilter}
+                onChange={(event) => setResultsExamFilter(event.target.value)}
+              >
+                <option value="">All examinations</option>
+                {resultExams.map((exam) => (
+                  <option key={exam.id} value={exam.id}>
+                    {exam.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="ia-field-label">Evaluation status</label>
+              <select
+                className="ia-filter-input"
+                value={resultsStatusFilter}
+                onChange={(event) => setResultsStatusFilter(event.target.value)}
+              >
+                <option value="">All statuses</option>
+                <option value="completed">Completed</option>
+                <option value="pending">Pending</option>
+                <option value="failed">Failed</option>
+              </select>
+            </div>
+
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label className="ia-field-label">
+                Search student or examination
+              </label>
+              <input
+                type="text"
+                className="ia-filter-input"
+                value={resultsSearch}
+                onChange={(event) => setResultsSearch(event.target.value)}
+                placeholder="Search by student name, email or examination title..."
+              />
+            </div>
+          </div>
+
+          <div className="ia-results-scroll">
+            <table className="ia-results-table">
+              <thead>
+                <tr>
+                  {[
+                    "Student",
+                    "Examination",
+                    "Subject / Class",
+                    "Attempt ID",
+                    "Submitted",
+                    "Marks",
+                    "Evaluation",
+                    "Actions",
+                  ].map((heading) => (
+                    <th
+                      key={heading}
+                      style={{
+                        padding: "14px 12px",
+                        borderBottom: "1px solid #e2e8f0",
+                        fontSize: "13px",
+                        color: "#64748b",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredInstitutionStudentResults.map((result) => (
+                  <tr key={result.attempt_id}>
+                    <td style={{ padding: "14px 12px" }}>
+                      <strong>{result.student_name}</strong>
+                      <br />
+                      <small>{result.student_email}</small>
+                    </td>
+
+                    <td style={{ padding: "14px 12px" }}>
+                      <strong>{result.exam_title}</strong>
+                    </td>
+
+                    <td style={{ padding: "14px 12px" }}>
+                      {result.subject_name}
+                      <br />
+                      <small>{result.class_name}</small>
+                    </td>
+
+                    <td style={{ padding: "14px 12px" }}>
+                      {result.attempt_id}
+                    </td>
+
+                    <td style={{ padding: "14px 12px" }}>
+                      {result.submitted_at
+                        ? new Date(
+                            result.submitted_at
+                          ).toLocaleDateString()
+                        : "—"}
+                    </td>
+
+                    <td style={{ padding: "14px 12px" }}>
+                      {result.evaluation_status === "completed"
+                        ? `${result.evaluation_summary.marks_awarded} / ${result.evaluation_summary.max_marks}`
+                        : result.evaluation_status === "pending"
+                          ? "Pending"
+                          : result.evaluation_status === "failed"
+                            ? "Failed"
+                            : "—"}
+                    </td>
+
+                    <td style={{ padding: "14px 12px" }}>
+                      <span className="teacher-status">
+                        {result.evaluation_status}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 12px" }}>
+                      <button
+                        type="button"
+                        className="ia-results-action"
+                        onClick={() => {
+                          setSelectedInstitutionResult(result);
+                          setCurrentInstitutionReviewQuestionIndex(0);
+                        }}
+                      >
+                        View Results
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+  </section>
+)}
+
   
       
       {/* CLASSES */}

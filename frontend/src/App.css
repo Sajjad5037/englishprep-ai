@@ -1370,3 +1370,250 @@
     font-size: 11px;
   }
 }
+/* ==========================================
+   INSTITUTION STUDENT RESULTS
+========================================== */
+
+.ia-results-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #e5eaf1;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.ia-results-table {
+  width: 100%;
+  min-width: 1050px;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+  font-size: 13px;
+  color: #334155;
+}
+
+/* Table headings */
+
+.ia-results-table thead th {
+  padding: 15px 16px !important;
+  background: #f7f9fc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.045em;
+  white-space: nowrap;
+  border-bottom: 1px solid #e5eaf1;
+}
+
+/* Table cells */
+
+.ia-results-table tbody td {
+  padding: 17px 16px !important;
+  border-bottom: 1px solid #edf1f5;
+  vertical-align: middle;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+/* Remove the final row border */
+
+.ia-results-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Row hover */
+
+.ia-results-table tbody tr {
+  transition: background-color 0.18s ease;
+}
+
+.ia-results-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+/* Student names and examination titles */
+
+.ia-results-table td strong {
+  color: #26394d;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ia-results-table td small {
+  display: inline-block;
+  margin-top: 4px;
+  color: #8492a6;
+  font-size: 11px;
+}
+
+/* Status badges */
+
+.ia-results-table .teacher-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  border-radius: 20px;
+  background: #eaf6ee;
+  color: #287548;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+/* View Results button */
+
+.ia-results-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  min-width: 105px;
+  border: none;
+  border-radius: 7px;
+  background: #285b71;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.ia-results-action:hover {
+  background: #1e485d;
+  transform: translateY(-1px);
+}
+
+.ia-results-action:focus-visible {
+  outline: 3px solid #b7dce9;
+  outline-offset: 2px;
+}
+
+/* Responsive layout */
+
+@media (max-width: 768px) {
+  .ia-results-scroll {
+    border-radius: 8px;
+  }
+
+  .ia-results-table {
+    min-width: 950px;
+  }
+
+  .ia-results-table thead th {
+    padding: 12px !important;
+  }
+
+  .ia-results-table tbody td {
+    padding: 13px 12px !important;
+  }
+}
+/* Institution results filters */
+
+.ia-field-label {
+  display: block;
+  margin-bottom: 7px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.ia-filter-input {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid #dce4eb;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #26394d;
+  font-family: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.ia-filter-input:focus {
+  border-color: #285b71;
+  box-shadow: 0 0 0 3px rgba(40, 91, 113, 0.12);
+}
+
+.ia-filter-input::placeholder {
+  color: #94a3b8;
+}
+
+@media (max-width: 600px) {
+  .ia-filter-input {
+    min-height: 44px;
+  }
+}
+/* Teacher student results filters */
+
+.teacher-results-filters {
+  margin: 20px 0;
+  padding: 20px;
+  background: #f8fafc;
+  border: 1px solid #e5eaf1;
+  border-radius: 12px;
+}
+
+.teacher-results-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.teacher-results-filter-header span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.teacher-results-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
+}
+
+.teacher-results-filter-label {
+  display: block;
+  margin-bottom: 7px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.teacher-results-filter-input {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid #dce4eb;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #26394d;
+  font-family: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.teacher-results-filter-input:focus {
+  border-color: #285b71;
+  box-shadow: 0 0 0 3px rgba(40, 91, 113, 0.12);
+}
+
+@media (max-width: 600px) {
+  .teacher-results-filters {
+    padding: 14px;
+  }
+}
