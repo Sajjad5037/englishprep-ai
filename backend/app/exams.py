@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.ai_exam_generation import generate_ai_exam
+from app.classes import require_institution_admin
+
 
 from sqlalchemy import func
 from app.database import get_db
@@ -726,6 +728,250 @@ def get_teacher_student_results(
         })
 
     return {"items": items}
+
+
+@router.get("/institution/results")
+def get_institution_student_results(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_admin),
+):
+    """Return all submitted student results in the institution."""
+
+    statement = (
+        select(
+            Attempt,
+            Exam,
+            User,
+            ClassSubject,
+            SchoolClass,
+            Subject,
+        )
+        .join(
+            Exam,
+            Exam.id == Attempt.exam_id,
+        )
+        .join(
+            User,
+            User.id == Attempt.user_id,
+        )
+        .join(
+            ExamClassSubjectAssignment,
+            ExamClassSubjectAssignment.exam_id == Exam.id,
+        )
+        .join(
+            ClassSubject,
+            ClassSubject.id
+            == ExamClassSubjectAssignment.class_subject_id,
+        )
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            Exam.institution_id == user.institution_id,
+            Attempt.status == "submitted",
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+        .order_by(Attempt.submitted_at.desc())
+    )
+
+    rows = db.execute(statement).all()
+
+    if not rows:
+        return {"items": []}
+
+    # Keep one result entry per attempt, even if an exam
+    # is associated with multiple class-subject assignments.
+    attempts_by_id = {}
+
+    for row in rows:
+        attempt = row[0]
+        attempts_by_id.setdefault(attempt.id, row)
+
+    attempt_ids = list(attempts_by_id.keys())
+    # Retrieve the teachers assigned to the relevant class subjects.
+    teacher_ids = {
+        row[3].teacher_id
+        for row in attempts_by_id.values()
+        if row[3].teacher_id is not None
+    }
+
+    teachers = []
+
+    if teacher_ids:
+        teachers = db.scalars(
+            select(User).where(User.id.in_(teacher_ids))
+        ).all()
+
+    teacher_by_id = {
+        teacher.id: teacher
+        for teacher in teachers
+    }
+
+    # Retrieve all submitted answers.
+    answers = db.scalars(
+        select(StudentAnswer)
+        .where(StudentAnswer.attempt_id.in_(attempt_ids))
+        .order_by(
+            StudentAnswer.attempt_id,
+            StudentAnswer.id,
+        )
+    ).all()
+
+    answer_ids = [answer.id for answer in answers]
+
+    # Retrieve evaluations associated with those answers.
+    evaluations = []
+
+    if answer_ids:
+        evaluations = db.scalars(
+            select(Evaluation).where(
+                Evaluation.student_answer_id.in_(answer_ids)
+            )
+        ).all()
+
+    evaluation_by_answer = {
+        evaluation.student_answer_id: evaluation
+        for evaluation in evaluations
+    }
+
+    answers_by_attempt = {}
+
+    for answer in answers:
+        answers_by_attempt.setdefault(
+            answer.attempt_id, []
+        ).append(answer)
+
+    items = []
+
+    for attempt_id, row in attempts_by_id.items():
+        (
+            attempt,
+            exam,
+            student,
+            class_subject,
+            school_class,
+            subject,
+        ) = row
+        teacher = teacher_by_id.get(class_subject.teacher_id)
+
+        attempt_answers = answers_by_attempt.get(
+            attempt_id, []
+        )
+
+        question_results = []
+
+        completed = 0
+        failed = 0
+        pending = 0
+        total_marks_awarded = 0
+        total_max_marks = 0
+
+        for answer in attempt_answers:
+            evaluation = evaluation_by_answer.get(answer.id)
+
+            snapshot = answer.submitted_snapshot or {}
+            question_snapshot = snapshot.get("question", {})
+
+            max_marks = (
+                evaluation.max_marks
+                if evaluation and evaluation.max_marks is not None
+                else question_snapshot.get("marks", 0)
+            )
+
+            marks_awarded = None
+            evaluation_status = (
+                evaluation.status if evaluation else "pending"
+            )
+
+            if evaluation_status == "completed":
+                completed += 1
+                marks_awarded = evaluation.marks_awarded or 0
+                total_marks_awarded += marks_awarded
+
+            elif evaluation_status == "failed":
+                failed += 1
+
+            else:
+                pending += 1
+
+            total_max_marks += max_marks or 0
+
+            question_results.append({
+                "question_id": answer.question_id,
+                "position": snapshot.get("position"),
+                "prompt": question_snapshot.get("prompt"),
+                "answer_text": snapshot.get(
+                    "answer_text",
+                    answer.answer_text,
+                ),
+                "reference_answer": question_snapshot.get("correct_answer"),
+                "marking_criteria": question_snapshot.get("marking_criteria") or [],
+                "evaluation_status": evaluation_status,
+                "marks_awarded": marks_awarded,
+                "max_marks": max_marks,
+                "criterion_results": (
+                    evaluation.criterion_results or []
+                    if evaluation else []
+                ),
+                "feedback": (
+                    evaluation.feedback
+                    if evaluation else None
+                ),
+            })
+
+        question_results.sort(
+            key=lambda item: (
+                item["position"] is None,
+                item["position"] or 0,
+            )
+        )
+
+        if failed:
+            overall_evaluation_status = "failed"
+        elif pending:
+            overall_evaluation_status = "pending"
+        else:
+            overall_evaluation_status = "completed"
+
+        items.append({
+            "attempt_id": attempt.id,
+            "exam_id": exam.id,
+            "exam_title": exam.title,
+            "subject_name": subject.name,
+            "class_name": school_class.name,
+            "teacher_id": class_subject.teacher_id,
+            "teacher_name": (
+                teacher.full_name if teacher else "Unassigned"
+            ),
+            "student_id": student.id,
+            "student_name": student.full_name,
+            "student_email": student.email,
+            "attempt_status": attempt.status,
+            "started_at": attempt.started_at,
+            "submitted_at": attempt.submitted_at,
+            "evaluation_status": overall_evaluation_status,
+            "evaluation_summary": {
+                "total": len(attempt_answers),
+                "completed": completed,
+                "failed": failed,
+                "pending": pending,
+                "marks_awarded": total_marks_awarded,
+                "max_marks": total_max_marks,
+            },
+            "question_results": question_results,
+        })
+
+
+
+
+    return {"items": items}
+
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_exam(
