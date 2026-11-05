@@ -227,11 +227,29 @@ def refresh_access_token(
         )
     )
 
-    if (
-        auth_session is None
-        or auth_session.revoked_at is not None
-        or auth_session.expires_at <= now
-    ):
+    if auth_session is None:
+        print("[AUTH_REFRESH] REJECTED: No matching session found.")
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh session is invalid or expired. Please log in again.",
+        )
+
+    if auth_session.revoked_at is not None:
+        print(
+            f"[AUTH_REFRESH] REJECTED: Session {auth_session.id} is revoked."
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh session is invalid or expired. Please log in again.",
+        )
+
+    if auth_session.expires_at <= now:
+        print(
+            f"[AUTH_REFRESH] REJECTED: Session {auth_session.id} has expired."
+        )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh session is invalid or expired. Please log in again.",
