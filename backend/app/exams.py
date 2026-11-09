@@ -8,8 +8,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.ai_exam_generation import generate_ai_exam
-from app.classes import require_institution_admin
+from app.sentence_construction_generation import (
+    generate_sentence_construction_exam,
+)
+import logging
 
+logger = logging.getLogger(__name__)
+from app.classes import require_institution_admin
+from app.sentence_construction_evaluation import (
+    evaluate_submitted_sentence_construction_answer,
+)
 
 from sqlalchemy import func
 from app.database import get_db
@@ -28,6 +36,8 @@ from app.models import (
     Question,
     SchoolClass,
     StudentAnswer,
+    ExamQuestion,
+    ExamQuestionGroup,
     Subject,
     User,
     ClassSubjectEnrollment,
@@ -37,12 +47,39 @@ router = APIRouter(
     prefix="/api/exams",
     tags=["Exams"],
 )
+from app.sentence_construction_evaluation import (
+    evaluate_submitted_sentence_construction_answer,
+)
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
 class ExamQuestionCreate(BaseModel):
     question_id: int = Field(gt=0)
     marks_override: int | None = Field(default=None, gt=0)
+
+class ExamQuestionGroupPartCreate(BaseModel):
+    """An existing question assigned as a part of a grouped question."""
+
+    question_id: int = Field(gt=0)
+
+    marks_override: int | None = Field(
+        default=None,
+        gt=0,
+    )
+
+
+class ExamQuestionGroupCreate(BaseModel):
+    """Create a parent question with multiple independently assessed parts."""
+
+    prompt: str = Field(
+        min_length=1,
+        max_length=10000,
+    )
+
+    parts: list[ExamQuestionGroupPartCreate] = Field(
+        min_length=2,
+        max_length=26,
+    )
 
 class StudentAnswerSave(BaseModel):
     answer_text: str = Field(max_length=20000)
@@ -68,6 +105,43 @@ class AIQuestionTypeConfig(BaseModel):
 class AIPassageBlueprint(BaseModel):
     question_types: list[AIQuestionTypeConfig] = Field(min_length=1)
 
+class SentenceConstructionWord(BaseModel):
+    word: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    intended_meaning: str | None = Field(
+        default=None,
+        max_length=1000,
+    )
+
+
+class SentenceConstructionExamRequest(BaseModel):
+    class_subject_id: int = Field(gt=0)
+
+    level: str = Field(
+        min_length=1,
+        max_length=50,
+    )
+
+    difficulty: str = Field(
+        min_length=1,
+        max_length=30,
+    )
+
+    # Words supplied by the teacher or selected from saved lists.
+    teacher_words: list[SentenceConstructionWord] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    # Additional words to be selected by AI.
+    ai_generated_count: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+    )
 
 class AIGenerateExamRequest(BaseModel):
     class_subject_id: int = Field(gt=0)
@@ -95,6 +169,52 @@ VALID_AI_QUESTION_TYPES = {
     "Vocabulary",
     "Extended response",
 }
+def validate_sentence_construction_exam_request(
+    request: SentenceConstructionExamRequest,
+) -> int:
+    """Validate the vocabulary blueprint for a sentence construction exam."""
+
+    teacher_words = [
+        item.word.strip()
+        for item in request.teacher_words
+    ]
+
+    # Every teacher-provided word must contain actual text.
+    if any(not word for word in teacher_words):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Teacher-provided vocabulary words cannot be empty.",
+        )
+
+    # Prevent duplicate teacher-provided vocabulary.
+    normalised_words = [
+        word.casefold()
+        for word in teacher_words
+    ]
+
+    if len(normalised_words) != len(set(normalised_words)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Duplicate vocabulary words are not allowed.",
+        )
+
+    total_questions = (
+        len(teacher_words) + request.ai_generated_count
+    )
+
+    if total_questions < 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Add at least one vocabulary word or request AI-generated words.",
+        )
+
+    if total_questions > 100:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="An examination cannot contain more than 100 questions.",
+        )
+
+    return total_questions
 
 
 def validate_ai_exam_request(request: AIGenerateExamRequest):
@@ -286,6 +406,7 @@ def exam_to_dict(exam: Exam) -> dict:
         "id": exam.id,
         "title": exam.title,
         "subject": exam.subject,
+        "exam_type": exam.exam_type,
         "level": exam.level,
         "instructions": exam.instructions,
         "duration_minutes": exam.duration_minutes,
@@ -666,6 +787,7 @@ def get_teacher_student_results(
 
             total_max_marks += max_marks or 0
 
+            
             question_results.append({
                 "question_id": answer.question_id,
                 "position": snapshot.get("position"),
@@ -676,18 +798,39 @@ def get_teacher_student_results(
                 ),
                 "reference_answer": question_snapshot.get("correct_answer"),
                 "marking_criteria": question_snapshot.get("marking_criteria") or [],
+
                 "evaluation_status": evaluation_status,
                 "marks_awarded": marks_awarded,
                 "max_marks": max_marks,
+
                 "criterion_results": (
                     evaluation.criterion_results or []
                     if evaluation else []
                 ),
+
                 "feedback": (
                     evaluation.feedback
                     if evaluation else None
                 ),
+
+                # Sentence Construction assessment data
+                "sentence_construction_data": (
+                    question_snapshot.get("sentence_construction_data")
+                ),
+                "group_id": question_snapshot.get("group_id"),
+                "group_prompt": question_snapshot.get("group_prompt"),
+                "part_label": question_snapshot.get("part_label"),
+
+                "sentence_construction_evaluation": (
+                    evaluation.output_json
+                    if (
+                        evaluation
+                        and isinstance(evaluation.output_json, dict)
+                    )
+                    else None
+                ),
             })
+
 
         question_results.sort(
             key=lambda item: (
@@ -695,6 +838,23 @@ def get_teacher_student_results(
                 item["position"] or 0,
             )
         )
+        # Calculate display numbering, treating each group as one question.
+        group_display_numbers = {}
+        next_display_number = 0
+
+        for item in question_results:
+            group_id = item["group_id"]
+
+            if group_id is not None:
+                if group_id not in group_display_numbers:
+                    next_display_number += 1
+                    group_display_numbers[group_id] = next_display_number
+
+                item["display_number"] = group_display_numbers[group_id]
+
+            else:
+                next_display_number += 1
+                item["display_number"] = next_display_number
 
         if failed:
             overall_evaluation_status = "failed"
@@ -1296,6 +1456,386 @@ def generate_exam_with_ai(
     }
 
 
+@router.post(
+    "/sentence-construction/generate",
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_sentence_construction_exam_endpoint(
+    request: SentenceConstructionExamRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_user),
+):
+    """Generate a sentence-construction examination and save it as a draft."""
+
+    # 1. Validate the teacher's vocabulary blueprint.
+    total_questions = validate_sentence_construction_exam_request(
+        request
+    )
+
+    # 2. Verify the selected class subject belongs to the institution.
+    result = db.execute(
+        select(ClassSubject, Subject)
+        .join(
+            SchoolClass,
+            SchoolClass.id == ClassSubject.class_id,
+        )
+        .join(
+            Subject,
+            Subject.id == ClassSubject.subject_id,
+        )
+        .where(
+            ClassSubject.id == request.class_subject_id,
+            SchoolClass.institution_id == user.institution_id,
+            Subject.institution_id == user.institution_id,
+        )
+    ).first()
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Selected class subject was not found.",
+        )
+
+    class_subject, subject = result
+
+    # Teachers can only generate exams for their assigned subjects.
+    if (
+        user.role == "teacher"
+        and class_subject.teacher_id != user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only generate exams for your assigned subjects.",
+        )
+
+    # 3. Every sentence-construction question carries four marks.
+    total_marks = total_questions * 4
+
+    # 4. Generate and validate the examination before database writes.
+    configuration = request.model_dump()
+
+    try:
+        generation_result = generate_sentence_construction_exam(
+            configuration
+        )
+
+        generated = generation_result["exam"]
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI generated an invalid examination: {str(exc)}",
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="AI examination generation failed. Please try again.",
+        )
+
+    # 5. Save the examination and all questions in one transaction.
+    try:
+        exam = Exam(
+            institution_id=user.institution_id,
+            created_by_user_id=user.id,
+            title=generated["title"].strip(),
+            subject=subject.name,
+            exam_type="sentence_construction",
+            level=request.level.strip(),
+            instructions=generated["instructions"],
+            duration_minutes=None,
+            status="Draft",
+        )
+
+        db.add(exam)
+        db.flush()
+
+        # Associate the examination with its class and subject.
+        db.add(
+            ExamClassSubjectAssignment(
+                exam_id=exam.id,
+                class_subject_id=class_subject.id,
+            )
+        )
+
+        saved_questions = []
+
+        for position, question_data in enumerate(
+            generated["questions"],
+            start=1,
+        ):
+            # Preserve the four-level assessment framework.
+            sentence_data = {
+                "target_word": question_data["target_word"],
+                "intended_meaning": question_data["intended_meaning"],
+                "levels": question_data["levels"],
+            }
+
+            # Level 4 example is retained as the model reference answer.
+            # Actual evaluation will use all four levels.
+            reference_answer = next(
+                item["example"]
+                for item in question_data["levels"]
+                if item["level"] == 4
+            )
+
+            question = Question(
+                institution_id=user.institution_id,
+                passage_id=None,
+                created_by_user_id=user.id,
+                prompt=question_data["prompt"].strip(),
+                question_type="Sentence Construction",
+                options=None,
+                correct_answer=reference_answer,
+                marking_criteria=[],
+                sentence_construction_data=sentence_data,
+                marks=4,
+            )
+
+            db.add(question)
+            db.flush()
+
+            exam_question = ExamQuestion(
+                exam_id=exam.id,
+                question_id=question.id,
+                position=position,
+                marks_override=None,
+            )
+
+            db.add(exam_question)
+
+            saved_questions.append({
+                "id": question.id,
+                "position": position,
+                "question_type": question.question_type,
+                "prompt": question.prompt,
+                "target_word": sentence_data["target_word"],
+                "intended_meaning": sentence_data["intended_meaning"],
+                "sentence_construction_data": sentence_data,
+                "correct_answer": question.correct_answer,
+                "marks": question.marks,
+            })
+
+        # Commit the exam, assignment and questions together.
+        db.commit()
+        db.refresh(exam)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while saving the generated examination.",
+        )
+
+    return {
+        "message": (
+            "Sentence construction examination generated successfully."
+        ),
+        "exam": exam_to_dict(exam),
+        "class_subject_id": class_subject.id,
+        "questions": saved_questions,
+        "total_questions": total_questions,
+        "total_marks": total_marks,
+        "model_id": generation_result["model_id"],
+        "prompt_version": generation_result["prompt_version"],
+        "status": "Draft",
+    }
+
+@router.post(
+    "/{exam_id}/question-groups",
+    status_code=status.HTTP_201_CREATED,
+)
+def create_exam_question_group(
+    exam_id: int,
+    request: ExamQuestionGroupCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_user),
+):
+    """Create a grouped question and assign its individual parts."""
+
+    # 1. Find the examination within the institution.
+    exam = db.scalar(
+        select(Exam).where(
+            Exam.id == exam_id,
+            Exam.institution_id == user.institution_id,
+        )
+    )
+
+    if exam is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found.",
+        )
+
+    # 2. Verify teacher permissions.
+    if user.role == "teacher":
+        teacher_has_access = db.scalar(
+            select(ClassSubject.id)
+            .join(
+                ExamClassSubjectAssignment,
+                ExamClassSubjectAssignment.class_subject_id
+                == ClassSubject.id,
+            )
+            .join(
+                SchoolClass,
+                SchoolClass.id == ClassSubject.class_id,
+            )
+            .join(
+                Subject,
+                Subject.id == ClassSubject.subject_id,
+            )
+            .where(
+                ExamClassSubjectAssignment.exam_id == exam.id,
+                ClassSubject.teacher_id == user.id,
+                SchoolClass.institution_id == user.institution_id,
+                Subject.institution_id == user.institution_id,
+            )
+            .limit(1)
+        )
+
+        if teacher_has_access is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not assigned to this exam's subject.",
+            )
+
+    if exam.status != "Draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Questions can only be added to draft exams.",
+        )
+
+    # 3. Validate the parent question.
+    group_prompt = request.prompt.strip()
+
+    if not group_prompt:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The parent question cannot be empty.",
+        )
+
+    # 4. Prevent duplicate questions within the group.
+    question_ids = [
+        part.question_id for part in request.parts
+    ]
+
+    if len(question_ids) != len(set(question_ids)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The same question cannot appear twice in a group.",
+        )
+
+    # 5. Retrieve all selected questions from the institution.
+    questions = db.scalars(
+        select(Question).where(
+            Question.id.in_(question_ids),
+            Question.institution_id == user.institution_id,
+        )
+    ).all()
+
+    question_lookup = {
+        question.id: question
+        for question in questions
+    }
+
+    if len(question_lookup) != len(question_ids):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more selected questions were not found.",
+        )
+
+    # 6. Prevent questions already assigned to this exam
+    # from being assigned again.
+    existing_question_ids = db.scalars(
+        select(ExamQuestion.question_id).where(
+            ExamQuestion.exam_id == exam.id,
+            ExamQuestion.question_id.in_(question_ids),
+        )
+    ).all()
+
+    if existing_question_ids:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="One or more questions are already assigned to this exam.",
+        )
+
+    # 7. Determine the next available examination position.
+    last_position = db.scalar(
+        select(func.max(ExamQuestion.position)).where(
+            ExamQuestion.exam_id == exam.id
+        )
+    ) or 0
+
+    first_position = last_position + 1
+
+    # 8. Create the group and all its parts in one transaction.
+    try:
+        group = ExamQuestionGroup(
+            exam_id=exam.id,
+            prompt=group_prompt,
+        )
+
+        db.add(group)
+        db.flush()
+
+        saved_parts = []
+
+        for index, part in enumerate(request.parts):
+
+            question = question_lookup[part.question_id]
+
+            position = first_position + index
+
+            part_label = chr(ord("a") + index)
+
+            assignment = ExamQuestion(
+                exam_id=exam.id,
+                question_id=question.id,
+                position=position,
+                marks_override=part.marks_override,
+                group_id=group.id,
+                part_label=part_label,
+            )
+
+            db.add(assignment)
+            db.flush()
+
+            part_marks = (
+                assignment.marks_override
+                if assignment.marks_override is not None
+                else question.marks
+            )
+
+            saved_parts.append({
+                "exam_question_id": assignment.id,
+                "question_id": question.id,
+                "part_label": part_label,
+                "position": position,
+                "prompt": question.prompt,
+                "question_type": question.question_type,
+                "marks": part_marks,
+            })
+
+        db.commit()
+        db.refresh(group)
+
+    except Exception:
+        db.rollback()
+        raise
+
+    # 9. Return the complete grouped-question information.
+    return {
+        "id": group.id,
+        "exam_id": exam.id,
+        "prompt": group.prompt,
+        "position": first_position,
+        "total_marks": sum(
+            part["marks"] for part in saved_parts
+        ),
+        "parts": saved_parts,
+    }
+
 @router.post("/{exam_id}/questions", status_code=status.HTTP_201_CREATED)
 def add_question_to_exam(
     exam_id: int,
@@ -1450,24 +1990,58 @@ def list_exam_questions(
         .order_by(ExamQuestion.position.asc())
     ).all()
 
-    return {
-        "items": [
-            {
-                "exam_question_id": assignment.id,
-                "question_id": question.id,
-                "prompt": question.prompt,
-                "question_type": question.question_type,
-                "position": assignment.position,
-                "marks": (
-                    assignment.marks_override
-                    if assignment.marks_override is not None
-                    else question.marks
-                ),
-                "passage_id": question.passage_id,
-            }
-            for assignment, question in rows
-        ]
+    
+    # Retrieve the parent groups associated with these assignments.
+    group_ids = {
+        assignment.group_id
+        for assignment, question in rows
+        if assignment.group_id is not None
     }
+
+    groups_by_id = {}
+
+    if group_ids:
+        groups = db.scalars(
+            select(ExamQuestionGroup).where(
+                ExamQuestionGroup.exam_id == exam.id,
+                ExamQuestionGroup.id.in_(group_ids),
+            )
+        ).all()
+
+        groups_by_id = {
+            group.id: group
+            for group in groups
+        }
+
+    # Build the question list with grouping information.
+    items = []
+
+    for assignment, question in rows:
+        group = groups_by_id.get(assignment.group_id)
+
+        items.append({
+            "exam_question_id": assignment.id,
+            "question_id": question.id,
+            "prompt": question.prompt,
+            "question_type": question.question_type,
+            "position": assignment.position,
+            "marks": (
+                assignment.marks_override
+                if assignment.marks_override is not None
+                else question.marks
+            ),
+            "passage_id": question.passage_id,
+
+            # Grouping information
+            "group_id": assignment.group_id,
+            "group_prompt": (
+                group.prompt if group else None
+            ),
+            "part_label": assignment.part_label,
+        })
+
+    return {"items": items}
+
 
 
 @router.post("/{exam_id}/publish")
@@ -1547,10 +2121,19 @@ def publish_exam(
         )
 
     # Preserve the content that belongs to this published exam.
+    # Preserve the content that belongs to this published exam.
     for assignment, question in rows:
+
         passage = (
             db.get(Passage, question.passage_id)
             if question.passage_id is not None
+            else None
+        )
+
+        # Retrieve the parent question group, if this is a grouped part.
+        group = (
+            db.get(ExamQuestionGroup, assignment.group_id)
+            if assignment.group_id is not None
             else None
         )
 
@@ -1561,12 +2144,23 @@ def publish_exam(
             "options": question.options,
             "correct_answer": question.correct_answer,
             "marking_criteria": question.marking_criteria or [],
+            "sentence_construction_data": (
+                question.sentence_construction_data
+            ),
             "marks": (
                 assignment.marks_override
                 if assignment.marks_override is not None
                 else question.marks
             ),
             "position": assignment.position,
+
+            # Grouping information
+            "group_id": assignment.group_id,
+            "group_prompt": (
+                group.prompt if group else None
+            ),
+            "part_label": assignment.part_label,
+
             "passage": (
                 {
                     "id": passage.id,
@@ -1898,6 +2492,11 @@ def get_student_exam(
             "options": snapshot.get("options"),
             "marks": snapshot.get("marks"),
             "passage": snapshot.get("passage"),
+
+            # Grouped question information
+            "group_id": snapshot.get("group_id"),
+            "group_prompt": snapshot.get("group_prompt"),
+            "part_label": snapshot.get("part_label"),
         })
 
     return {
@@ -2258,6 +2857,13 @@ def submit_student_attempt(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Exam attempt not found.",
         )
+    exam = db.get(Exam, attempt.exam_id)
+
+    if exam is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found.",
+        )
 
     if attempt.status != "in_progress":
         raise HTTPException(
@@ -2372,26 +2978,48 @@ def submit_student_attempt(
     db.refresh(attempt)
 
     # Evaluate each answer independently.
+    
+    # Evaluate each answer using the appropriate evaluation service.
     for evaluation_id, submitted_snapshot in evaluation_jobs:
         try:
             evaluation = db.get(Evaluation, evaluation_id)
+
+            if evaluation is None:
+                raise ValueError(
+                    f"Evaluation record {evaluation_id} not found."
+                )
 
             evaluation.status = "processing"
             evaluation.error_message = None
 
             db.commit()
 
-            result = evaluate_submitted_answer(
-                submitted_snapshot
-            )
+            # Select the evaluator based on the examination type.
+            if exam.exam_type == "sentence_construction":
 
+                result = evaluate_submitted_sentence_construction_answer(
+                    submitted_snapshot
+                )
+
+            else:
+
+                result = evaluate_submitted_answer(
+                    submitted_snapshot
+                )
+
+            # Save the completed evaluation.
             evaluation = db.get(Evaluation, evaluation_id)
+
+            if evaluation is None:
+                raise ValueError(
+                    f"Evaluation record {evaluation_id} not found."
+                )
 
             evaluation.status = "completed"
             evaluation.marks_awarded = result["marks_awarded"]
             evaluation.max_marks = result["max_marks"]
             evaluation.criterion_results = (
-                result["criterion_results"]
+                result.get("criterion_results", [])
             )
             evaluation.feedback = result["feedback"]
             evaluation.model_id = result["model_id"]
@@ -2403,7 +3031,17 @@ def submit_student_attempt(
             db.commit()
 
         except Exception as exc:
-            # A failed evaluation must not undo the submitted exam.
+
+            logger.exception(
+                "Evaluation failed. Exam ID: %s, Exam type: %s, "
+                "Attempt ID: %s, Evaluation ID: %s",
+                attempt.exam_id,
+                exam.exam_type,
+                attempt.id,
+                evaluation_id,
+            )
+
+            # Preserve the submitted examination.
             db.rollback()
 
             try:
@@ -2411,11 +3049,18 @@ def submit_student_attempt(
 
                 if evaluation is not None:
                     evaluation.status = "failed"
-                    evaluation.error_message = str(exc)[:5000]
+                    evaluation.error_message = (
+                        f"{type(exc).__name__}: {exc}"
+                    )[:5000]
 
                     db.commit()
 
             except Exception:
+                logger.exception(
+                    "Could not save failed evaluation status. "
+                    "Evaluation ID: %s",
+                    evaluation_id,
+                )
                 db.rollback()
 
     # Collect final evaluation statuses.
@@ -2577,9 +3222,24 @@ def get_student_attempt_results(
         snapshot = answer.submitted_snapshot or {}
         question = snapshot.get("question", {})
 
+        
+        sentence_construction_data = question.get(
+            "sentence_construction_data"
+        )
+
+        evaluation_details = (
+            evaluation.output_json
+            if (
+                evaluation
+                and isinstance(evaluation.output_json, dict)
+            )
+            else None
+        )
+
         question_results.append({
             "question_id": answer.question_id,
             "position": snapshot.get("position"),
+            "answer_text": answer.answer_text or "",
             "status": (
                 evaluation.status if evaluation else "pending"
             ),
@@ -2597,7 +3257,14 @@ def get_student_attempt_results(
             "feedback": (
                 evaluation.feedback if evaluation else None
             ),
+            "sentence_construction_data": (
+                sentence_construction_data
+            ),
+            "sentence_construction_evaluation": (
+                evaluation_details
+            ),
         })
+
 
     question_results.sort(
         key=lambda item: item["position"] or 0
@@ -2627,6 +3294,7 @@ def get_student_attempt_results(
         },
         "question_results": question_results,
     }
+
 @router.get("/available-class-subjects")
 def get_available_class_subjects(
     db: Session = Depends(get_db),

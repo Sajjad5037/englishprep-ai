@@ -88,6 +88,12 @@ class Exam(Base):
         nullable=False,
         default="English Language",
     )
+    exam_type = Column(
+        String(50),
+        nullable=False,
+        default="standard",
+        server_default="standard",
+    )
 
     level = Column(String(50), nullable=True)
 
@@ -164,6 +170,29 @@ class AuthSession(Base):
         nullable=True,
     )
 
+class ExamQuestionGroup(Base):
+    """A parent question containing multiple independently assessed parts."""
+
+    __tablename__ = "exam_question_groups"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    exam_id = Column(
+        Integer,
+        ForeignKey("exams.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Shared instructions or introductory text for the grouped question.
+    prompt = Column(Text, nullable=False)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
 class ExamQuestion(Base):
     """A question included in an exam, with its position and exam snapshot."""
 
@@ -174,6 +203,11 @@ class ExamQuestion(Base):
             "exam_id",
             "position",
             name="uq_exam_questions_position",
+        ),
+        UniqueConstraint(
+            "group_id",
+            "part_label",
+            name="uq_exam_question_group_part_label",
         ),
     )
 
@@ -197,6 +231,22 @@ class ExamQuestion(Base):
 
     # Optional exam-specific mark allocation.
     marks_override = Column(Integer, nullable=True)
+
+    # Optional parent group for multi-part examination questions.
+    group_id = Column(
+        Integer,
+        ForeignKey("exam_question_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Part label within a group: a, b, c, etc.
+    # Remains NULL for standalone questions.
+    part_label = Column(
+        String(10),
+        nullable=True,
+    )
+
 
     # Populated when the exam is published, preserving the version
     # of the question and its marking information used in the exam.
@@ -250,7 +300,11 @@ class Question(Base):
 
     # Structured marking criteria for AI evaluation.
     # Example: [{"criterion": "Identifies the writer's intention", "marks": 1}]
+    # Structured marking criteria for standard AI evaluation.
     marking_criteria = Column(JSON, nullable=True)
+
+    # Additional assessment information for sentence construction questions.
+    sentence_construction_data = Column(JSON, nullable=True)
 
     marks = Column(
         Integer,
@@ -461,6 +515,7 @@ class Evaluation(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
 class Institution(Base):
     """A school or institution registered on EnglishPrep AI."""
 

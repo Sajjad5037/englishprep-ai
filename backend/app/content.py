@@ -36,15 +36,58 @@ class MarkingCriterion(BaseModel):
     criterion: str = Field(min_length=2, max_length=500)
     marks: int = Field(ge=1, le=100)
 
+class SentenceConstructionLevel(BaseModel):
+    level: int = Field(ge=1, le=4)
 
+    description: str = Field(
+        min_length=2,
+        max_length=500,
+    )
+
+    example: str = Field(
+        min_length=1,
+        max_length=2000,
+    )
+
+
+class SentenceConstructionData(BaseModel):
+    target_word: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    intended_meaning: str = Field(
+        min_length=2,
+        max_length=1000,
+    )
+
+    levels: list[SentenceConstructionLevel] = Field(
+        min_length=4,
+        max_length=4,
+    )
 class QuestionCreate(BaseModel):
     passage_id: int | None = None
+
     prompt: str = Field(min_length=3)
-    question_type: str = Field(min_length=2, max_length=50)
+
+    question_type: str = Field(
+        min_length=2,
+        max_length=50,
+    )
+
     options: list[str] | None = None
+
     correct_answer: str = Field(min_length=1)
-    marking_criteria: list[MarkingCriterion] = Field(min_length=1)
+
+    marking_criteria: list[MarkingCriterion] = Field(
+        default_factory=list
+    )
+
     marks: int = Field(ge=1, le=100)
+
+    sentence_construction_data: (
+        SentenceConstructionData | None
+    ) = None
 
 def require_institution_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
@@ -193,6 +236,9 @@ def question_to_dict(question: Question) -> dict:
         "options": question.options,
         "correct_answer": question.correct_answer,
         "marking_criteria": question.marking_criteria,
+        "sentence_construction_data": (
+            question.sentence_construction_data
+        ),
         "marks": question.marks,
         "institution_id": question.institution_id,
         "created_by_user_id": question.created_by_user_id,
@@ -247,10 +293,11 @@ def create_question(
     db: Session = Depends(get_db),
     user: User = Depends(require_institution_user),
 ):
-    """Create a question with a reference answer and marking criteria."""
+    """Create a standard or sentence-construction question."""
 
     prompt = request.prompt.strip()
     correct_answer = request.correct_answer.strip()
+    question_type = request.question_type.strip()
 
     if not prompt or not correct_answer:
         raise HTTPException(
@@ -258,20 +305,87 @@ def create_question(
             detail="Question text and reference answer are required.",
         )
 
-    # Require the marking criteria to account for all available marks.
-    criteria_total = sum(
-        criterion.marks
-        for criterion in request.marking_criteria
-    )
+    is_sentence_construction = question_type.casefold() in {
+        "sentence construction",
+        "sentence_construction",
+    }
 
-    if criteria_total != request.marks:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "The marks assigned to marking criteria must add up "
-                "to the question's maximum marks."
-            ),
+    if is_sentence_construction:
+        sentence_data = request.sentence_construction_data
+
+        if sentence_data is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Sentence construction data is required "
+                    "for this question type."
+                ),
+            )
+
+        if request.marks != 4:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Sentence construction questions must "
+                    "have a maximum of 4 marks."
+                ),
+            )
+
+        level_numbers = [
+            item.level for item in sentence_data.levels
+        ]
+
+        if sorted(level_numbers) != [1, 2, 3, 4]:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Sentence construction data must contain "
+                    "exactly one entry for each level from 1 to 4."
+                ),
+            )
+
+        marking_criteria_data = []
+        sentence_construction_data = sentence_data.model_dump()
+
+    else:
+        if request.sentence_construction_data is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Sentence construction data can only be "
+                    "used with Sentence Construction questions."
+                ),
+            )
+
+        if not request.marking_criteria:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "At least one marking criterion is required "
+                    "for a standard question."
+                ),
+            )
+
+        criteria_total = sum(
+            criterion.marks
+            for criterion in request.marking_criteria
         )
+
+        if criteria_total != request.marks:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "The marks assigned to marking criteria must "
+                    "add up to the question's maximum marks."
+                ),
+            )
+
+        marking_criteria_data = [
+            criterion.model_dump()
+            for criterion in request.marking_criteria
+        ]
+
+        sentence_construction_data = None
 
     if request.passage_id is not None:
         passage = db.get(Passage, request.passage_id)
@@ -290,13 +404,11 @@ def create_question(
         passage_id=request.passage_id,
         created_by_user_id=user.id,
         prompt=prompt,
-        question_type=request.question_type.strip(),
+        question_type=question_type,
         options=request.options,
         correct_answer=correct_answer,
-        marking_criteria=[
-            criterion.model_dump()
-            for criterion in request.marking_criteria
-        ],
+        marking_criteria=marking_criteria_data,
+        sentence_construction_data=sentence_construction_data,
         marks=request.marks,
     )
 
@@ -305,7 +417,6 @@ def create_question(
     db.refresh(question)
 
     return question_to_dict(question)
-
 
 
 @router.put("/questions/{question_id}")
