@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { authenticatedFetch } from "./api";
 import AiExamGenerator from "./AiExamGenerator";
+import SentenceConstructionGenerator from "./SentenceConstructionGenerator";
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
 ).replace(/\/$/, "");
@@ -260,6 +261,10 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [showAiCreate, setShowAiCreate] = useState(false);
+  const [
+    showSentenceConstructionCreate,
+    setShowSentenceConstructionCreate,
+  ] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [publishingExamId, setPublishingExamId] = useState(null);
   const [title, setTitle] = useState("");
@@ -280,6 +285,12 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [selectedQuestionId, setSelectedQuestionId] = useState("");
   const [addingQuestion, setAddingQuestion] = useState(false);
   const [showManageQuestions, setShowManageQuestions] = useState(false);
+  // Grouped question creation
+  const [showCreateQuestionGroup, setShowCreateQuestionGroup] = useState(false);
+  const [groupPrompt, setGroupPrompt] = useState("");
+  const [selectedGroupQuestionIds, setSelectedGroupQuestionIds] = useState([]);
+  const [groupQuestionError, setGroupQuestionError] = useState("");
+  const [savingQuestionGroup, setSavingQuestionGroup] = useState(false);
 
   async function loadExams() {
     setLoading(true);
@@ -441,6 +452,71 @@ async function addQuestionToExam(event) {
     setAddingQuestion(false);
   }
 }
+
+async function createQuestionGroup() {
+  setGroupQuestionError("");
+
+  if (!selectedExam) {
+    setGroupQuestionError("Please select an examination.");
+    return;
+  }
+
+  if (!groupPrompt.trim()) {
+    setGroupQuestionError("Enter the main question or shared instructions.");
+    return;
+  }
+
+  if (selectedGroupQuestionIds.length < 2) {
+    setGroupQuestionError("Select at least two questions.");
+    return;
+  }
+
+  setSavingQuestionGroup(true);
+
+  try {
+    const payload = {
+      prompt: groupPrompt.trim(),
+      parts: selectedGroupQuestionIds.map((questionId) => ({
+        question_id: Number(questionId),
+        marks_override: null,
+      })),
+    };
+
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/exams/${selectedExam.id}/question-groups`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      },
+      accessToken
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to create question group."
+      );
+    }
+
+    setGroupPrompt("");
+    setSelectedGroupQuestionIds([]);
+    setShowCreateQuestionGroup(false);
+
+    await loadExamQuestions(selectedExam.id);
+
+  } catch (err) {
+    setGroupQuestionError(
+      err.message || "Unable to create question group."
+    );
+  } finally {
+    setSavingQuestionGroup(false);
+  }
+}
+
 
 async function createQuestion(event) {
   event.preventDefault();
@@ -963,6 +1039,17 @@ async function loadAvailableClassSubjects() {
                   }}
                 >
                   ✨ Create Exam Using AI
+                </button>
+                <button
+                  className="teacher-primary"
+                  type="button"
+                  onClick={async () => {
+                    setError("");
+                    setShowSentenceConstructionCreate(true);
+                    await loadAvailableClassSubjects();
+                  }}
+                >
+                  ✨ Create Sentence Construction Exam
                 </button>
               </div>
             )}
@@ -1550,7 +1637,10 @@ async function loadAvailableClassSubjects() {
                     <button
                       type="button"
                       className="teacher-primary"
-                      onClick={() => setSelectedStudentResult(result)}
+                      onClick={() => {
+                        setCurrentReviewQuestionIndex(0);
+                        setSelectedStudentResult(result);
+                      }}
                     >
                       View results
                     </button>
@@ -1589,14 +1679,45 @@ async function loadAvailableClassSubjects() {
     )}
 
     {/* INDIVIDUAL STUDENT RESULT REVIEW */}
+    
     {selectedStudentResult && (
-      <section
-        className="teacher-panel"
-        style={{ marginTop: "24px" }}
+      <div
+        onClick={() => setSelectedStudentResult(null)}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1000,
+          background: "rgba(15, 23, 42, 0.60)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "24px",
+          overflowY: "auto",
+        }}
       >
+        <section
+          className="teacher-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="student-result-dialog-title"
+          onClick={(event) => event.stopPropagation()}
+          style={{
+            width: "100%",
+            maxWidth: "1100px",
+            maxHeight: "calc(100vh - 48px)",
+            overflowY: "auto",
+            margin: "auto",
+            background: "#ffffff",
+            borderRadius: "12px",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+          }}
+        >
+
         <div className="teacher-panel-head">
           <div>
-            <h2>{selectedStudentResult.student_name}</h2>
+            <h2 id="student-result-dialog-title">
+              {selectedStudentResult.student_name}
+            </h2>
             <p>
               {selectedStudentResult.exam_title}
               {" · "}
@@ -1677,8 +1798,12 @@ async function loadAvailableClassSubjects() {
     >
       <h4 style={{ fontSize: "14px", marginBottom: "12px" }}>
         Question{" "}
-        {selectedStudentResult.question_results[currentReviewQuestionIndex].position ||
+        {selectedStudentResult.question_results[currentReviewQuestionIndex].display_number ??
+          selectedStudentResult.question_results[currentReviewQuestionIndex].position ??
           currentReviewQuestionIndex + 1}
+        {selectedStudentResult.question_results[currentReviewQuestionIndex].part_label
+          ? `(${selectedStudentResult.question_results[currentReviewQuestionIndex].part_label})`
+          : ""}
       </h4>
 
       <p style={{ fontWeight: 600 }}>
@@ -1693,54 +1818,168 @@ async function loadAvailableClassSubjects() {
             "No answer submitted."}
         </p>
       </div>
-      {/* REFERENCE ANSWER */}
-      <div style={{ marginTop: "20px" }}>
-        <strong>Reference answer</strong>
+      
+      {selectedStudentResult.question_results[currentReviewQuestionIndex].sentence_construction_data ? (
+        <>
+          {(() => {
+            const currentQuestion =
+              selectedStudentResult.question_results[currentReviewQuestionIndex];
 
-        <p
-          style={{
-            marginTop: "8px",
-            whiteSpace: "pre-wrap",
-            lineHeight: "1.6",
-          }}
-        >
-          {selectedStudentResult.question_results[currentReviewQuestionIndex].reference_answer ||
-            "No reference answer available."}
-        </p>
-      </div>
+            const sentenceData = currentQuestion.sentence_construction_data;
 
-      {/* MARKING CRITERIA */}
-      <div style={{ marginTop: "20px" }}>
-        <strong>Marking criteria</strong>
+            const evaluation =
+              currentQuestion.sentence_construction_evaluation || {};
 
-        {selectedStudentResult.question_results[currentReviewQuestionIndex].marking_criteria?.length > 0 ? (
-          <ol
-            style={{
-              marginTop: "8px",
-              paddingLeft: "22px",
-              lineHeight: "1.8",
-            }}
-          >
-            {selectedStudentResult.question_results[currentReviewQuestionIndex].marking_criteria.map(
-              (criterion, index) => (
-                <li key={index}>
-                  {typeof criterion === "string"
-                    ? criterion
-                    : criterion.criterion || criterion.description || "Criterion unavailable"}
+            const achievedLevel = evaluation.highest_level ?? 0;
 
-                  {typeof criterion === "object" && criterion?.marks != null
-                    ? ` (${criterion.marks} marks)`
-                    : ""}
-                </li>
-              )
+            return (
+              <>
+                <div style={{ marginTop: "20px" }}>
+                  <strong>Target vocabulary</strong>
+                  <p>{sentenceData.target_word}</p>
+
+                  <strong>Intended meaning</strong>
+                  <p>{sentenceData.intended_meaning}</p>
+                </div>
+
+                <h3 style={{ marginTop: "25px" }}>
+                  Four Levels of Sentence Development
+                </h3>
+
+                {sentenceData.levels?.map((level) => {
+                  const isCurrentLevel =
+                    level.level === achievedLevel;
+
+                  const isAchieved =
+                    level.level <= achievedLevel;
+
+                  return (
+                    <div
+                      key={level.level}
+                      style={{
+                        marginTop: "14px",
+                        padding: "18px",
+                        borderRadius: "8px",
+                        background: isCurrentLevel
+                          ? "#ecfdf5"
+                          : "#f8fafc",
+                        border: isCurrentLevel
+                          ? "2px solid #26966b"
+                          : "1px solid #e2e8f0",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <strong>Level {level.level}</strong>
+                        <strong>{level.level} / 4 marks</strong>
+                      </div>
+
+                      <p>
+                        <strong>{level.description}</strong>
+                      </p>
+
+                      <p>{level.example}</p>
+
+                      {isCurrentLevel && (
+                        <strong style={{ color: "#15803d" }}>
+                          ✓ Student's achieved level
+                        </strong>
+                      )}
+
+                      {!isCurrentLevel && isAchieved && (
+                        <span style={{ color: "#15803d" }}>
+                          ✓ Achieved
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {evaluation.next_level_sentence && (
+                  <div
+                    style={{
+                      marginTop: "20px",
+                      padding: "18px",
+                      background: "#eff6ff",
+                      border: "1px solid #bfdbfe",
+                      borderRadius: "8px",
+                    }}
+                  >
+                    <h4>Suggested Next-Level Sentence</h4>
+
+                    <p>{evaluation.next_level_sentence}</p>
+
+                    <p>{evaluation.next_level_explanation}</p>
+                  </div>
+                )}
+
+                {evaluation.level_4_model_example && (
+                  <div style={{ marginTop: "20px" }}>
+                    <h4>Level 4 Model Example</h4>
+
+                    <p>{evaluation.level_4_model_example}</p>
+
+                    <p>{evaluation.level_4_model_explanation}</p>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </>
+      ) : (
+        <>
+          {/* Existing conventional examination review */}
+
+          {/* REFERENCE ANSWER */}
+          <div style={{ marginTop: "20px" }}>
+            <strong>Reference answer</strong>
+
+            <p
+              style={{
+                marginTop: "8px",
+                whiteSpace: "pre-wrap",
+                lineHeight: "1.6",
+              }}
+            >
+              {selectedStudentResult.question_results[currentReviewQuestionIndex].reference_answer ||
+                "No reference answer available."}
+            </p>
+          </div>
+
+          {/* MARKING CRITERIA */}
+          <div style={{ marginTop: "20px" }}>
+            <strong>Marking criteria</strong>
+
+            {selectedStudentResult.question_results[currentReviewQuestionIndex].marking_criteria?.length > 0 ? (
+              <ol style={{ marginTop: "8px", paddingLeft: "22px", lineHeight: "1.8" }}>
+                {selectedStudentResult.question_results[currentReviewQuestionIndex].marking_criteria.map(
+                  (criterion, index) => (
+                    <li key={index}>
+                      {typeof criterion === "string"
+                        ? criterion
+                        : criterion.criterion || criterion.description || "Criterion unavailable"}
+
+                      {typeof criterion === "object" && criterion?.marks != null
+                        ? ` (${criterion.marks} marks)`
+                        : ""}
+                    </li>
+                  )
+                )}
+              </ol>
+            ) : (
+              <p style={{ marginTop: "8px" }}>
+                No marking criteria available.
+              </p>
             )}
-          </ol>
-        ) : (
-          <p style={{ marginTop: "8px" }}>
-            No marking criteria available.
-          </p>
-        )}
-      </div>
+          </div>
+        </>
+      )}
+
 
       <div style={{ marginTop: "20px" }}>
         <strong>Marks</strong>
@@ -1785,10 +2024,10 @@ async function loadAvailableClassSubjects() {
         Previous
       </button>
 
-      <span style={{ fontSize: "13px", color: "#64748b" }}>
-        {currentReviewQuestionIndex + 1} /{" "}
-        {selectedStudentResult.question_results.length}
-      </span>
+      <strong>
+      Review item {currentReviewQuestionIndex + 1} of{" "}
+      {selectedStudentResult.question_results.length}
+    </strong>
 
       <button
         type="button"
@@ -1812,8 +2051,9 @@ async function loadAvailableClassSubjects() {
   </>
 )}
         </div>
-      </section>
-    )}
+          </section>
+  </div>
+)}
   </section>
 )}
 
@@ -1921,6 +2161,217 @@ async function loadAvailableClassSubjects() {
       <h3 style={{ marginTop: 26 }}>
         Add a saved question
       </h3>
+      <div style={{ marginBottom: "18px" }}>
+        <button
+          type="button"
+          className="teacher-primary"
+          onClick={() => {
+            setGroupPrompt("");
+            setSelectedGroupQuestionIds([]);
+            setGroupQuestionError("");
+            setShowCreateQuestionGroup(true);
+          }}
+        >
+          Create Question Group
+        </button>
+
+        <p className="teacher-description">
+          Combine multiple existing questions into one numbered
+          question with parts such as (a), (b) and (c).
+        </p>
+      </div>
+      
+      {showCreateQuestionGroup && (
+        <div
+          style={{
+            marginBottom: "22px",
+            padding: "20px",
+            border: "1px solid #cbd5e1",
+            borderRadius: "10px",
+            background: "#f8fafc",
+          }}
+        >
+          <h3 style={{ marginTop: 0 }}>
+            Create Grouped Question
+          </h3>
+
+          <p className="teacher-description">
+            Enter the main question or shared instructions, then select
+            at least two existing questions to create its parts.
+          </p>
+
+          <label className="teacher-field">
+            Main question / shared instructions
+            <textarea
+              value={groupPrompt}
+              onChange={(event) =>
+                setGroupPrompt(event.target.value)
+              }
+              rows={3}
+              maxLength={10000}
+              placeholder="Enter the introductory question or shared instructions..."
+            />
+          </label>
+
+          <h4>Select question parts</h4>
+
+          <p className="teacher-description">
+            The selected questions will automatically become parts
+            (a), (b), (c), etc., in the order you select them.
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gap: "10px",
+              marginTop: "12px",
+            }}
+          >
+            {questions
+              .filter(
+                (question) =>
+                  !examQuestions.some(
+                    (item) => item.question_id === question.id
+                  )
+              )
+              .map((question) => {
+                const questionId = String(question.id);
+
+                const isSelected =
+                  selectedGroupQuestionIds.includes(questionId);
+
+                return (
+                  <label
+                    key={question.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "12px",
+                      padding: "12px",
+                      background: isSelected ? "#eff6ff" : "#ffffff",
+                      border: isSelected
+                        ? "1px solid #285b71"
+                        : "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(event) => {
+                        setSelectedGroupQuestionIds((current) =>
+                          event.target.checked
+                            ? [...current, questionId]
+                            : current.filter(
+                                (id) => id !== questionId
+                              )
+                        );
+                      }}
+                      style={{ marginTop: "4px" }}
+                    />
+
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        Question ID {question.id}
+                      </div>
+
+                      <div style={{ marginTop: "5px" }}>
+                        {question.prompt}
+                      </div>
+
+                      <small style={{ color: "#64748b" }}>
+                        {question.question_type}
+                        {" · "}
+                        {question.marks} marks
+                      </small>
+                    </div>
+                  </label>
+                );
+              })}
+
+            {!loadingQuestions &&
+              questions.filter(
+                (question) =>
+                  !examQuestions.some(
+                    (item) => item.question_id === question.id
+                  )
+              ).length === 0 && (
+                <p>
+                  No unassigned questions are available.
+                </p>
+              )}
+          </div>
+
+          <div
+            style={{
+              marginTop: "18px",
+              padding: "12px",
+              background: "#ffffff",
+              borderRadius: "8px",
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            <strong>
+              Selected parts: {selectedGroupQuestionIds.length}
+            </strong>
+
+            <p style={{ marginBottom: 0, color: "#64748b" }}>
+              Total marks:{" "}
+              {questions
+                .filter((question) =>
+                  selectedGroupQuestionIds.includes(
+                    String(question.id)
+                  )
+                )
+                .reduce(
+                  (total, question) =>
+                    total + (Number(question.marks) || 0),
+                  0
+                )}
+            </p>
+          </div>
+
+          {groupQuestionError && (
+            <div
+              className="teacher-notice teacher-error"
+              role="alert"
+              style={{ marginTop: "14px" }}
+            >
+              {groupQuestionError}
+            </div>
+          )}
+
+          
+          <div className="teacher-modal-actions">
+            <button
+              type="button"
+              className="teacher-secondary"
+              onClick={() => {
+                setShowCreateQuestionGroup(false);
+                setGroupQuestionError("");
+              }}
+              disabled={savingQuestionGroup}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              className="teacher-primary"
+              onClick={createQuestionGroup}
+              disabled={
+                savingQuestionGroup ||
+                !groupPrompt.trim() ||
+                selectedGroupQuestionIds.length < 2
+              }
+            >
+              {savingQuestionGroup ? "Saving Group..." : "Save Question Group"}
+            </button>
+          </div>
+
+        </div>
+      )}
 
       <form onSubmit={addQuestionToExam}>
         <label className="teacher-field">
@@ -1999,7 +2450,16 @@ async function loadAvailableClassSubjects() {
           loadingClassSubjects={loadingClassSubjects}
         />
       )}
-
+      {showSentenceConstructionCreate && (
+        <SentenceConstructionGenerator
+          onClose={() => setShowSentenceConstructionCreate(false)}
+          accessToken={accessToken}
+          availableClassSubjects={availableClassSubjects}
+          loadingClassSubjects={loadingClassSubjects}
+          onExamGenerated={loadExams}
+        />
+      )}
+      
       {showCreate && (
         <div className="teacher-modal-backdrop" onClick={() => setShowCreate(false)}>
           <section

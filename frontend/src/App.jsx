@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import StudentDashboard from "./StudentDashboard";
 import PlatformOwnerDashboard from "./PlatformOwnerDashboard";
+import { refreshSession } from "./api";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -86,42 +87,31 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    let isActive = true;
+  let isActive = true;
 
-    if (!sessionRestorePromise) {
-      sessionRestorePromise = fetch(
-        `${API_BASE_URL}/api/auth/refresh`,
-        {
-          method: "POST",
-          credentials: "include",
-        }
-      )
-        .then(async (response) => {
-          const data = await response.json().catch(() => ({}));
-          return response.ok ? data : null;
-        })
-        .catch(() => null);
-    }
+  if (!sessionRestorePromise) {
+    sessionRestorePromise = refreshSession();
+  }
 
-    sessionRestorePromise
-      .then((data) => {
-        if (!isActive) return;
+  sessionRestorePromise
+    .then((data) => {
+      if (!isActive) return;
 
-        if (data?.access_token && data?.user) {
-          setAccessToken(data.access_token);
-          setUser(data.user);
-        }
-      })
-      .finally(() => {
-        if (isActive) {
-          setAuthLoading(false);
-        }
-      });
+      if (data?.access_token && data?.user) {
+        setAccessToken(data.access_token);
+        setUser(data.user);
+      }
+    })
+    .finally(() => {
+      if (isActive) {
+        setAuthLoading(false);
+      }
+    });
 
-    return () => {
-      isActive = false;
-    };
-  }, []);
+  return () => {
+    isActive = false;
+  };
+}, []);
   useEffect(() => {
     function handleTokenRefreshed(event) {
       const newToken = event.detail?.access_token;

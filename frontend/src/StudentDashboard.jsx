@@ -54,7 +54,67 @@ export default function StudentDashboard({
   const [examQuestions, setExamQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   
-  const currentQuestion = examQuestions[currentQuestionIndex];
+  
+// Build navigation items: standalone questions or grouped questions.
+const examDisplayItems = [];
+const groupItemById = new Map();
+
+for (const item of examQuestions) {
+  // Standalone question
+  if (item.group_id == null) {
+    examDisplayItems.push({
+      type: "single",
+      key: `question-${item.question_id}`,
+      position: item.position,
+      question: item,
+    });
+
+    continue;
+  }
+
+  // Find or create the parent group.
+  let groupItem = groupItemById.get(item.group_id);
+
+  if (!groupItem) {
+    groupItem = {
+      type: "group",
+      key: `group-${item.group_id}`,
+      group_id: item.group_id,
+      group_prompt: item.group_prompt,
+      position: item.position,
+      parts: [],
+    };
+
+    groupItemById.set(item.group_id, groupItem);
+    examDisplayItems.push(groupItem);
+  }
+
+  // Add this question as a part of the group.
+  groupItem.parts.push(item);
+}
+// Select the current standalone question or grouped question.
+  const currentDisplayItem =
+    examDisplayItems[currentQuestionIndex] || null;
+
+  // Keep the existing currentQuestion variable available
+  // for the passage and existing question-display logic.
+  const currentQuestion =
+    currentDisplayItem?.type === "single"
+      ? currentDisplayItem.question
+      : currentDisplayItem?.parts?.[0] || null;
+  // Questions displayed on the current screen.
+const questionsToRender =
+  currentDisplayItem?.type === "group"
+    ? currentDisplayItem.parts
+    : currentDisplayItem?.question
+      ? [currentDisplayItem.question]
+      : [];
+
+// Shared introductory text for grouped questions.
+const currentGroupPrompt =
+  currentDisplayItem?.type === "group"
+    ? currentDisplayItem.group_prompt
+    : null;
 
   const currentPassage =
     currentQuestion?.passage ||
@@ -524,69 +584,220 @@ async function saveStudentAnswer(
                       {" "}Evaluation
                     </h2>
 
-                    {result.status === "completed" ? (
-                      <>
-                        <h2 style={{ color: "#285b71" }}>
-                          Marks: {result.marks_awarded}
-                          {" / "}
-                          {result.max_marks}
-                        </h2>
+                    
+              {result.status === "completed" ? (
+                <>
+                  <h2 style={{ color: "#285b71" }}>
+                    Marks: {result.marks_awarded}
+                    {" / "}
+                    {result.max_marks}
+                  </h2>
 
-                        <h3>Marking Criteria</h3>
+                  {result.sentence_construction_data ? (
+                    <>
+                      {/* Student's submitted sentence */}
+                      <h3>Your Submitted Sentence</h3>
 
-                        {(result.criterion_results || []).map(
-                          (criterion, criterionIndex) => (
+                      <div
+                        style={{
+                          padding: "16px",
+                          background: "#f8fafc",
+                          border: "1px solid #e2e8f0",
+                          borderRadius: "8px",
+                          marginBottom: "20px",
+                        }}
+                      >
+                        {result.answer_text || "No answer provided."}
+                      </div>
+
+                      {/* Four levels of sentence development */}
+                      <h3>Four Levels of Sentence Development</h3>
+
+                      <p style={{ color: "#64748b" }}>
+                        Compare your sentence with the four levels to understand
+                        how vocabulary and sentence construction can improve.
+                      </p>
+
+                      {(
+                        result.sentence_construction_data.levels || []
+                      ).map((level) => {
+                        const achievedLevel =
+                          result.sentence_construction_evaluation?.highest_level ?? 0;
+
+                        const isCurrentLevel = level.level === achievedLevel;
+                        const isAchieved = level.level <= achievedLevel;
+
+                        return (
+                          <div
+                            key={level.level}
+                            style={{
+                              padding: "18px",
+                              marginTop: "14px",
+                              background: isCurrentLevel
+                                ? "#ecfdf5"
+                                : "#f8fafc",
+                              borderRadius: "8px",
+                              border: isCurrentLevel
+                                ? "2px solid #26966b"
+                                : "1px solid #e2e8f0",
+                            }}
+                          >
                             <div
-                              key={criterionIndex}
                               style={{
-                                padding: "16px",
-                                marginTop: "12px",
-                                background: "#f8fafc",
-                                borderRadius: "8px",
-                                border: "1px solid #e2e8f0",
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                                gap: "8px",
                               }}
                             >
-                              <h4>
-                                Criterion {criterionIndex + 1}
+                              <h4 style={{ margin: 0 }}>
+                                Level {level.level}
                               </h4>
 
-                              <p>
-                                Marks: {criterion.marks_awarded}
-                                {" / "}
-                                {criterion.max_marks}
-                              </p>
-
-                              <p>
-                                {criterion.met
-                                  ? "Criterion achieved"
-                                  : "Criterion not achieved"}
-                              </p>
-
-                              {criterion.evidence && (
-                                <p>
-                                  <strong>Evidence:</strong>{" "}
-                                  {criterion.evidence}
-                                </p>
-                              )}
-
-                              <p>
-                                <strong>Feedback:</strong>{" "}
-                                {criterion.feedback}
-                              </p>
+                              <strong>
+                                {level.level} / 4 marks
+                              </strong>
                             </div>
-                          )
-                        )}
 
-                        <div style={{ marginTop: "20px" }}>
-                          <h3>Overall Feedback</h3>
-                          <p>{result.feedback}</p>
+                            <p>
+                              <strong>{level.description}</strong>
+                            </p>
+
+                            <p>{level.example}</p>
+
+                            {isCurrentLevel && (
+                              <span
+                                style={{
+                                  color: "#15803d",
+                                  fontWeight: "bold",
+                                }}
+                              >
+                                ✓ Your achieved level
+                              </span>
+                            )}
+
+                            {!isCurrentLevel && isAchieved && (
+                              <span style={{ color: "#15803d" }}>
+                                ✓ Achieved
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {/* Assessment feedback */}
+                      <div style={{ marginTop: "24px" }}>
+                        <h3>Assessment Feedback</h3>
+                        <p>{result.feedback}</p>
+                      </div>
+
+                      {/* Next-level improvement */}
+                      {result.sentence_construction_evaluation
+                        ?.next_level_sentence && (
+                        <div
+                          style={{
+                            padding: "18px",
+                            marginTop: "20px",
+                            background: "#eff6ff",
+                            border: "1px solid #bfdbfe",
+                            borderRadius: "8px",
+                          }}
+                        >
+                          <h3>Your Next-Level Sentence</h3>
+
+                          <p>
+                            {
+                              result.sentence_construction_evaluation
+                                .next_level_sentence
+                            }
+                          </p>
+
+                          <p>
+                            {
+                              result.sentence_construction_evaluation
+                                .next_level_explanation
+                            }
+                          </p>
                         </div>
-                      </>
-                    ) : (
-                      <p>
-                        Evaluation status: {result.status}
-                      </p>
-                    )}
+                      )}
+
+                      {/* Level 4 model explanation */}
+                      {result.sentence_construction_evaluation
+                        ?.level_4_model_explanation && (
+                        <div style={{ marginTop: "20px" }}>
+                          <h3>Understanding Level 4</h3>
+
+                          <p>
+                            {
+                              result.sentence_construction_evaluation
+                                .level_4_model_explanation
+                            }
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* Existing conventional examination results */}
+                      <h3>Marking Criteria</h3>
+
+                      {(result.criterion_results || []).map(
+                        (criterion, criterionIndex) => (
+                          <div
+                            key={criterionIndex}
+                            style={{
+                              padding: "16px",
+                              marginTop: "12px",
+                              background: "#f8fafc",
+                              borderRadius: "8px",
+                              border: "1px solid #e2e8f0",
+                            }}
+                          >
+                            <h4>
+                              Criterion {criterionIndex + 1}
+                            </h4>
+
+                            <p>
+                              Marks: {criterion.marks_awarded}
+                              {" / "}
+                              {criterion.max_marks}
+                            </p>
+
+                            <p>
+                              {criterion.met
+                                ? "Criterion achieved"
+                                : "Criterion not achieved"}
+                            </p>
+
+                            {criterion.evidence && (
+                              <p>
+                                <strong>Evidence:</strong>{" "}
+                                {criterion.evidence}
+                              </p>
+                            )}
+
+                            <p>
+                              <strong>Feedback:</strong>{" "}
+                              {criterion.feedback}
+                            </p>
+                          </div>
+                        )
+                      )}
+
+                      <div style={{ marginTop: "20px" }}>
+                        <h3>Overall Feedback</h3>
+                        <p>{result.feedback}</p>
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <p>
+                  Evaluation status: {result.status}
+                </p>
+              )}
+
                   </>
                 );
               })()}
@@ -740,264 +951,352 @@ async function saveStudentAnswer(
     )}
 
     {/* RIGHT: One question at a time */}
-    {currentQuestion && (
-      <section
+    
+{currentDisplayItem && (
+  <section
+    style={{
+      position: "sticky",
+      top: "20px",
+      alignSelf: "start",
+      maxHeight: "calc(100vh - 40px)",
+      overflowY: "auto",
+      padding: "22px",
+      border: "1px solid #e2e8f0",
+      borderRadius: "12px",
+      background: "#ffffff",
+    }}
+  >
+    {/* Main question heading */}
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        gap: "12px",
+        alignItems: "center",
+      }}
+    >
+      <h3 style={{ marginTop: 0 }}>
+        Question {currentQuestionIndex + 1}
+      </h3>
+
+      <span style={{ color: "#64748b", fontSize: "13px" }}>
+        {questionsToRender.reduce(
+          (total, question) =>
+            total + (Number(question.marks) || 0),
+          0
+        )} marks
+      </span>
+    </div>
+
+    {/* Shared parent question */}
+    {currentDisplayItem.type === "group" && (
+      <div
         style={{
-          position: "sticky",
-          top: "20px",
-          alignSelf: "start",
-          maxHeight: "calc(100vh - 40px)",
-          overflowY: "auto",
-          padding: "22px",
+          padding: "14px",
+          marginBottom: "20px",
+          background: "#f5f7fb",
           border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          background: "#ffffff",
+          borderRadius: "8px",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "12px",
-            alignItems: "center",
-          }}
-        >
-          <h3 style={{ marginTop: 0 }}>
-            Question {currentQuestion.position}
-          </h3>
+        <strong>Shared instructions</strong>
 
-          <span style={{ color: "#64748b", fontSize: "13px" }}>
-            {currentQuestion.marks} marks
-          </span>
-        </div>
-
-        <p style={{ lineHeight: 1.8 }}>
-          {currentQuestion.prompt}
+        <p style={{ lineHeight: 1.8, marginBottom: 0 }}>
+          {currentGroupPrompt}
         </p>
+      </div>
+    )}
 
-        <label
-          style={{
-            display: "block",
-            marginTop: "24px",
-            fontWeight: 600,
-          }}
-        >
-          Your answer
+    {/* Render every question or subquestion */}
+    {questionsToRender.map((question, index) => {
+      const questionId = question.question_id;
 
-          
-        {["multiple choice", "mcq"].includes(
-          String(currentQuestion.question_type || "").trim().toLowerCase()
-        ) ? (
-          <div style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
-            {Array.isArray(currentQuestion.options) &&
-            currentQuestion.options.length > 0 ? (
-              currentQuestion.options.map((option, index) => {
-                const optionText =
-                  typeof option === "string"
-                    ? option
-                    : option?.label || option?.text || option?.value || "";
+      const isMultipleChoice = [
+        "multiple choice",
+        "mcq",
+      ].includes(
+        String(question.question_type || "")
+          .trim()
+          .toLowerCase()
+      );
 
-                const questionId = currentQuestion.question_id;
-                const isSelected = answers[questionId] === optionText;
+      const partTitle =
+        currentDisplayItem.type === "group"
+          ? `Question ${currentQuestionIndex + 1}(${question.part_label})`
+          : `Question ${currentQuestionIndex + 1}`;
 
-                return (
-                  <label
-                    key={index}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      padding: "14px",
-                      border: isSelected
-                        ? "2px solid #285b71"
-                        : "1px solid #dce4eb",
-                      borderRadius: "9px",
-                      background: isSelected ? "#f0f7fa" : "#ffffff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name={`question-${questionId}`}
-                      value={optionText}
-                      checked={isSelected}
-                      onChange={(event) => {
-                        const latestAnswer = event.target.value;
-
-                        setAnswers((previous) => ({
-                          ...previous,
-                          [questionId]: latestAnswer,
-                        }));
-
-                        setAnswerSaveStatus((previous) => ({
-                          ...previous,
-                          [questionId]: "unsaved",
-                        }));
-
-                        if (autoSaveTimerRef.current) {
-                          clearTimeout(autoSaveTimerRef.current);
-                        }
-
-                        autoSaveTimerRef.current = setTimeout(() => {
-                          saveStudentAnswer(questionId, latestAnswer);
-                        }, 1000);
-                      }}
-                      style={{
-                        width: "18px",
-                        height: "18px",
-                        flexShrink: 0,
-                        accentColor: "#285b71",
-                      }}
-                    />
-
-                    <span>{optionText}</span>
-                  </label>
-                );
-              })
-            ) : (
-              <p>No answer options are available for this question.</p>
-            )}
-          </div>
-        ) : (
-          <textarea
-            value={answers[currentQuestion.question_id] || ""}
-            onChange={(event) => {
-              const questionId = currentQuestion.question_id;
-              const latestAnswer = event.target.value;
-
-              setAnswers((previous) => ({
-                ...previous,
-                [questionId]: latestAnswer,
-              }));
-
-              setAnswerSaveStatus((previous) => ({
-                ...previous,
-                [questionId]: "unsaved",
-              }));
-
-              if (autoSaveTimerRef.current) {
-                clearTimeout(autoSaveTimerRef.current);
-              }
-
-              autoSaveTimerRef.current = setTimeout(() => {
-                saveStudentAnswer(questionId, latestAnswer);
-              }, 1000);
-            }}
-            onBlur={(event) => {
-              const questionId = currentQuestion.question_id;
-              const latestAnswer = event.target.value;
-
-              if (autoSaveTimerRef.current) {
-                clearTimeout(autoSaveTimerRef.current);
-                autoSaveTimerRef.current = null;
-              }
-
-              saveStudentAnswer(questionId, latestAnswer);
-            }}
-            rows={8}
-            maxLength={20000}
-            placeholder="Write your answer here..."
-            style={{
-              display: "block",
-              width: "100%",
-              marginTop: "10px",
-              padding: "12px",
-              border: "1px solid #dce4eb",
-              borderRadius: "8px",
-              font: "inherit",
-              resize: "vertical",
-              boxSizing: "border-box",
-            }}
-          />
-        )}
-
-        </label>
-
-        <button
-          type="button"
-          onClick={() =>
-            saveStudentAnswer(currentQuestion.question_id)
-          }
-          disabled={savingAnswer}
-          style={{
-            marginTop: "12px",
-            padding: "10px 16px",
-            border: "none",
-            borderRadius: "8px",
-            background: "#285b71",
-            color: "#ffffff",
-            cursor: savingAnswer ? "wait" : "pointer",
-          }}
-        >
-          {savingAnswer ? "Saving answer..." : "Save answer"}
-        </button>
-
-        {/* Previous / Next navigation */}
+      return (
         <div
+          key={questionId}
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "12px",
-            marginTop: "28px",
-            paddingTop: "18px",
-            borderTop: "1px solid #e2e8f0",
+            padding: "18px",
+            marginTop: index === 0 ? "0" : "22px",
+            border: "1px solid #e2e8f0",
+            borderRadius: "10px",
           }}
         >
-          <button
-            type="button"
-            disabled={currentQuestionIndex === 0}
-            onClick={() =>
-              setCurrentQuestionIndex((index) => index - 1)
-            }
+          <div
             style={{
-              padding: "10px 14px",
-              border: "1px solid #dce4eb",
-              borderRadius: "8px",
-              background: "#ffffff",
-              cursor:
-                currentQuestionIndex === 0
-                  ? "not-allowed"
-                  : "pointer",
-              opacity: currentQuestionIndex === 0 ? 0.5 : 1,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              alignItems: "center",
             }}
           >
-            ← Previous
-          </button>
+            <h4 style={{ marginTop: 0 }}>
+              {partTitle}
+            </h4>
 
-          <span style={{ color: "#64748b", fontSize: "13px" }}>
-            {currentQuestionIndex + 1} of {examQuestions.length}
-          </span>
+            <span style={{ color: "#64748b", fontSize: "13px" }}>
+              {question.marks} marks
+            </span>
+          </div>
+
+          <p style={{ lineHeight: 1.8 }}>
+            {question.prompt}
+          </p>
+
+          <div style={{ marginTop: "20px" }}>
+            <strong>Your answer</strong>
+
+            {isMultipleChoice ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  display: "grid",
+                  gap: "12px",
+                }}
+              >
+                {Array.isArray(question.options) &&
+                question.options.length > 0 ? (
+                  question.options.map((option, optionIndex) => {
+                    const optionText =
+                      typeof option === "string"
+                        ? option
+                        : option?.label ||
+                          option?.text ||
+                          option?.value ||
+                          "";
+
+                    const isSelected =
+                      answers[questionId] === optionText;
+
+                    return (
+                      <label
+                        key={optionIndex}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          padding: "14px",
+                          border: isSelected
+                            ? "2px solid #285b71"
+                            : "1px solid #dce4eb",
+                          borderRadius: "9px",
+                          background: isSelected
+                            ? "#f0f7fa"
+                            : "#ffffff",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name={`question-${questionId}`}
+                          value={optionText}
+                          checked={isSelected}
+                          onChange={(event) => {
+                            const latestAnswer =
+                              event.target.value;
+
+                            setAnswers((previous) => ({
+                              ...previous,
+                              [questionId]: latestAnswer,
+                            }));
+
+                            setAnswerSaveStatus((previous) => ({
+                              ...previous,
+                              [questionId]: "unsaved",
+                            }));
+
+                            if (autoSaveTimerRef.current) {
+                              clearTimeout(autoSaveTimerRef.current);
+                            }
+
+                            autoSaveTimerRef.current = setTimeout(
+                              () => {
+                                saveStudentAnswer(
+                                  questionId,
+                                  latestAnswer
+                                );
+                              },
+                              1000
+                            );
+                          }}
+                          style={{
+                            width: "18px",
+                            height: "18px",
+                            flexShrink: 0,
+                            accentColor: "#285b71",
+                          }}
+                        />
+
+                        <span>{optionText}</span>
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p>No answer options are available.</p>
+                )}
+              </div>
+            ) : (
+              <textarea
+                value={answers[questionId] || ""}
+                onChange={(event) => {
+                  const latestAnswer = event.target.value;
+
+                  setAnswers((previous) => ({
+                    ...previous,
+                    [questionId]: latestAnswer,
+                  }));
+
+                  setAnswerSaveStatus((previous) => ({
+                    ...previous,
+                    [questionId]: "unsaved",
+                  }));
+
+                  if (autoSaveTimerRef.current) {
+                    clearTimeout(autoSaveTimerRef.current);
+                  }
+
+                  autoSaveTimerRef.current = setTimeout(() => {
+                    saveStudentAnswer(
+                      questionId,
+                      latestAnswer
+                    );
+                  }, 1000);
+                }}
+                onBlur={(event) => {
+                  const latestAnswer = event.target.value;
+
+                  if (autoSaveTimerRef.current) {
+                    clearTimeout(autoSaveTimerRef.current);
+                    autoSaveTimerRef.current = null;
+                  }
+
+                  saveStudentAnswer(
+                    questionId,
+                    latestAnswer
+                  );
+                }}
+                rows={6}
+                maxLength={20000}
+                placeholder="Write your answer here..."
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: "10px",
+                  padding: "12px",
+                  border: "1px solid #dce4eb",
+                  borderRadius: "8px",
+                  font: "inherit",
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                }}
+              />
+            )}
+          </div>
 
           <button
             type="button"
-            disabled={
-              currentQuestionIndex === examQuestions.length - 1
-            }
-            onClick={() =>
-              setCurrentQuestionIndex((index) => index + 1)
-            }
+            onClick={() => saveStudentAnswer(questionId)}
+            disabled={savingAnswer}
             style={{
-              padding: "10px 14px",
+              marginTop: "12px",
+              padding: "10px 16px",
               border: "none",
               borderRadius: "8px",
               background: "#285b71",
               color: "#ffffff",
-              cursor:
-                currentQuestionIndex === examQuestions.length - 1
-                  ? "not-allowed"
-                  : "pointer",
-              opacity:
-                currentQuestionIndex === examQuestions.length - 1
-                  ? 0.5
-                  : 1,
+              cursor: savingAnswer ? "wait" : "pointer",
             }}
           >
-            Next →
+            {savingAnswer ? "Saving answer..." : "Save answer"}
           </button>
         </div>
-      </section>
-    )}
+      );
+    })}
+
+    {/* Previous / Next navigation */}
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: "12px",
+        marginTop: "28px",
+        paddingTop: "18px",
+        borderTop: "1px solid #e2e8f0",
+      }}
+    >
+      <button
+        type="button"
+        disabled={currentQuestionIndex === 0}
+        onClick={() =>
+          setCurrentQuestionIndex((index) =>
+            Math.max(0, index - 1)
+          )
+        }
+        style={{
+          padding: "10px 14px",
+          border: "1px solid #dce4eb",
+          borderRadius: "8px",
+          background: "#ffffff",
+          cursor:
+            currentQuestionIndex === 0
+              ? "not-allowed"
+              : "pointer",
+          opacity: currentQuestionIndex === 0 ? 0.5 : 1,
+        }}
+      >
+        ← Previous
+      </button>
+
+      <span style={{ color: "#64748b", fontSize: "13px" }}>
+        {currentQuestionIndex + 1} of {examDisplayItems.length}
+      </span>
+
+      <button
+        type="button"
+        disabled={
+          currentQuestionIndex === examDisplayItems.length - 1
+        }
+        onClick={() =>
+          setCurrentQuestionIndex((index) =>
+            Math.min(examDisplayItems.length - 1, index + 1)
+          )
+        }
+        style={{
+          padding: "10px 14px",
+          border: "none",
+          borderRadius: "8px",
+          background: "#285b71",
+          color: "#ffffff",
+          cursor:
+            currentQuestionIndex === examDisplayItems.length - 1
+              ? "not-allowed"
+              : "pointer",
+          opacity:
+            currentQuestionIndex === examDisplayItems.length - 1
+              ? 0.5
+              : 1,
+        }}
+      >
+        Next →
+      </button>
+    </div>
+  </section>
+)}
+
   </div>
 )}
     <div

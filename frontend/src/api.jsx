@@ -5,45 +5,63 @@ const API_BASE_URL = (
 
 let refreshPromise = null;
 
-async function refreshAccessToken() {
+export async function refreshSession() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/auth/refresh`,
-          {
-            method: "POST",
-            credentials: "include",
+      const performRefresh = async () => {
+        try {
+          const response = await fetch(
+            `${API_BASE_URL}/api/auth/refresh`,
+            {
+              method: "POST",
+              credentials: "include",
+            }
+          );
+
+          if (!response.ok) {
+            return null;
           }
-        );
 
-        if (!response.ok) {
+          const data = await response.json();
+
+          if (!data.access_token) {
+            return null;
+          }
+
+          window.dispatchEvent(
+            new CustomEvent("auth-token-refreshed", {
+              detail: { access_token: data.access_token },
+            })
+          );
+
+          return data;
+        } catch (error) {
+          console.error("Token refresh failed:", error);
           return null;
         }
+      };
 
-        const data = await response.json();
-
-        if (!data.access_token) {
-          return null;
-        }
-
-        window.dispatchEvent(
-          new CustomEvent("auth-token-refreshed", {
-            detail: { access_token: data.access_token },
-          })
+      // Coordinate refresh requests across browser tabs.
+      if (navigator.locks?.request) {
+        return navigator.locks.request(
+          "englishprep-auth-refresh",
+          performRefresh
         );
-
-        return data.access_token;
-      } catch (error) {
-        console.error("Token refresh failed:", error);
-        return null;
       }
+
+      // Fallback for browsers without Web Locks support.
+      return performRefresh();
     })().finally(() => {
       refreshPromise = null;
     });
   }
 
   return refreshPromise;
+}
+
+async function refreshAccessToken() {
+  const data = await refreshSession();
+  return data?.access_token || null;
 }
 
 export async function authenticatedFetch(
