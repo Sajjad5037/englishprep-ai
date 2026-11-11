@@ -15,6 +15,9 @@ from app.institution_users import router as institution_users_router
 from app.institutions import router as institutions_router
 from app.classes import router as classes_router
 from app.subjects import router as subjects_router
+from app.passage_scanner import router as passage_scanner_router
+
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,7 +53,7 @@ app.include_router(classes_router)
 app.include_router(subjects_router)
 app.include_router(exams_router)
 app.include_router(content_router)
-
+app.include_router(passage_scanner_router)
 
 @app.get("/")
 def root():
