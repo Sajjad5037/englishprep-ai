@@ -889,6 +889,82 @@ async function createPassage(event) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
 
+useEffect(() => {
+  if (!scanSessionId) {
+    return;
+  }
+
+  let isActive = true;
+  let isChecking = false;
+
+  const checkScanStatus = async () => {
+    if (isChecking) return;
+
+    isChecking = true;
+
+    try {
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/api/passage-scanner/sessions/${scanSessionId}`,
+        {
+          method: "GET",
+        },
+        accessToken
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+
+        throw new Error(
+          errorData.detail || "Unable to check scanning status."
+        );
+      }
+
+      const data = await response.json();
+
+      if (!isActive) return;
+
+      console.log("Passage scanning status:", data);
+
+      setScanStatus(data.status);
+
+      if (data.status === "completed") {
+        setPassageContent(data.extracted_text || "");
+        setShowPassageScanner(false);
+        setScanSessionId(null);
+        setScanError("");
+      }
+
+      if (data.status === "failed") {
+        setScanError(
+          data.error || "Passage text extraction failed."
+        );
+      }
+
+    } catch (error) {
+      if (!isActive) return;
+
+      console.error("Scanning status error:", error);
+      setScanError(
+        error.message || "Unable to check scanning status."
+      );
+
+    } finally {
+      isChecking = false;
+    }
+  };
+
+  checkScanStatus();
+
+  const interval = setInterval(checkScanStatus, 2000);
+
+  return () => {
+    isActive = false;
+    clearInterval(interval);
+  };
+
+}, [scanSessionId, accessToken]);
+
+
   useEffect(() => {
     if (activePage === "Passages") {
         loadPassages();
