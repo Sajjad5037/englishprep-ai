@@ -167,6 +167,12 @@ const sortedPublishedDates = Object.keys(
 
   return b.localeCompare(a);
 });
+const publishedDateNumbers = [...sortedPublishedDates]
+  .sort((a, b) => a.localeCompare(b))
+  .reduce((acc, dateKey, index) => {
+    acc[dateKey] = index + 1;
+    return acc;
+  }, {});
 
 const selectedDateExams = selectedPublishedDate
   ? examsByPublishedDate[selectedPublishedDate] || []
@@ -1010,7 +1016,13 @@ async function saveStudentAnswer(
     {/* Render every question or subquestion */}
     {questionsToRender.map((question, index) => {
       const questionId = question.question_id;
+      console.log("QUESTION DATA:", question);
+      const isSentenceConstruction =
+        String(question.question_type || "")
+          .trim()
+          .toLowerCase() === "sentence construction";
 
+      const sentenceData = question.sentence_construction_data;
       const isMultipleChoice = [
         "multiple choice",
         "mcq",
@@ -1029,37 +1041,109 @@ async function saveStudentAnswer(
         <div
           key={questionId}
           style={{
-            padding: "18px",
+            padding: "0",
             marginTop: index === 0 ? "0" : "22px",
-            border: "1px solid #e2e8f0",
-            borderRadius: "10px",
+            border: "none",
+            borderRadius: "0",
           }}
         >
           <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "12px",
-              alignItems: "center",
-            }}
-          >
-            <h4 style={{ marginTop: 0 }}>
-              {partTitle}
-            </h4>
-
-            <span style={{ color: "#64748b", fontSize: "13px" }}>
-              {question.marks} marks
-            </span>
-          </div>
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+          }}
+        >
+          
+        </div>
 
           <p style={{ lineHeight: 1.8 }}>
             {question.prompt}
           </p>
 
           <div style={{ marginTop: "20px" }}>
-            <strong>Your answer</strong>
+            {!isSentenceConstruction && <strong>Your answer</strong>}
 
-            {isMultipleChoice ? (
+            {isSentenceConstruction ? (
+              <div style={{ marginTop: "12px" }}>
+
+                <div
+                  style={{
+                    padding: "18px",
+                    background: "#f0f7fa",
+                    border: "1px solid #dce8ee",
+                    borderRadius: "10px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <div style={{ fontSize: "13px", color: "#64748b" }}>
+                    Target word
+                  </div>
+
+                  <h3 style={{ margin: "6px 0 12px", color: "#285b71" }}>
+                    {sentenceData?.target_word || "Target word unavailable"}
+                  </h3>
+
+                  <strong>Intended meaning</strong>
+
+                  <p style={{ marginBottom: 0, lineHeight: 1.6 }}>
+                    {sentenceData?.intended_meaning || ""}
+                  </p>
+                </div>
+
+                <strong>Write your sentence below:</strong>
+
+                <textarea
+                  value={answers[questionId] || ""}
+                  onChange={(event) => {
+                    const latestAnswer = event.target.value;
+
+                    setAnswers((previous) => ({
+                      ...previous,
+                      [questionId]: latestAnswer,
+                    }));
+
+                    setAnswerSaveStatus((previous) => ({
+                      ...previous,
+                      [questionId]: "unsaved",
+                    }));
+
+                    if (autoSaveTimerRef.current) {
+                      clearTimeout(autoSaveTimerRef.current);
+                    }
+
+                    autoSaveTimerRef.current = setTimeout(() => {
+                      saveStudentAnswer(questionId, latestAnswer);
+                    }, 1000);
+                  }}
+                  onBlur={(event) => {
+                    const latestAnswer = event.target.value;
+
+                    if (autoSaveTimerRef.current) {
+                      clearTimeout(autoSaveTimerRef.current);
+                      autoSaveTimerRef.current = null;
+                    }
+
+                    saveStudentAnswer(questionId, latestAnswer);
+                  }}
+                  rows={4}
+                  maxLength={20000}
+                  placeholder="Write your original sentence here..."
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    marginTop: "10px",
+                    padding: "12px",
+                    border: "1px solid #dce4eb",
+                    borderRadius: "8px",
+                    font: "inherit",
+                    resize: "vertical",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+            ) : isMultipleChoice ? (
               <div
                 style={{
                   marginTop: "12px",
@@ -1470,7 +1554,7 @@ async function saveStudentAnswer(
                     }}
                   >
                     <h3 style={{ marginTop: 0 }}>
-                      {formatPublishedDate(dateKey)}
+                      {publishedDateNumbers[dateKey]}
                     </h3>
 
                     <p style={{ color: "#64748b" }}>

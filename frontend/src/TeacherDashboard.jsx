@@ -122,6 +122,142 @@ const styles = `
   font-size: 14px;
   box-sizing: border-box;
 }
+.exam-category-section,
+.exam-date-section,
+.exam-list-section {
+  margin-top: 24px;
+}
+
+.exam-category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.exam-category-button {
+  padding: 20px;
+  border: 1px solid #dce2ea;
+  border-radius: 10px;
+  background: white;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.exam-category-button:hover {
+  border-color: #2563eb;
+  background: #f0f5ff;
+}
+  .teacher-danger {
+  background: #dc2626;
+  color: white;
+  border: none;
+  padding: 9px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+
+.teacher-danger:hover {
+  background: #b91c1c;
+}
+
+.teacher-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.exam-delete-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.exam-delete-options p {
+  color: #64748b;
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.teacher-secondary {
+  background: #e5e7eb;
+  color: #374151;
+  border: none;
+  padding: 9px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+  .teacher-modal-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 23, 42, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.teacher-modal {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 28px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+.teacher-modal h2 {
+  margin-top: 0;
+  font-size: 22px;
+  color: #1e293b;
+}
+
+.teacher-modal > p {
+  color: #475569;
+  line-height: 1.6;
+}
+
+.teacher-modal .teacher-danger,
+.teacher-modal .teacher-primary,
+.teacher-modal .teacher-secondary {
+  width: 100%;
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.exam-delete-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 22px 0;
+}
+
+.exam-delete-options p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+@media (max-width: 600px) {
+  .teacher-modal {
+    padding: 22px;
+  }
+}
 `;
 
 const navigation = [
@@ -134,6 +270,8 @@ const navigation = [
 
 export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [activePage, setActivePage] = useState("Overview");
+  const [selectedExamSubject, setSelectedExamSubject] = useState(null);
+  const [selectedExamDate, setSelectedExamDate] = useState(null);
   const [exams, setExams] = useState([]);
   const [studentResults, setStudentResults] = useState([]);
   const [loadingStudentResults, setLoadingStudentResults] = useState(false);
@@ -237,9 +375,23 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [selectedStudentResult, setSelectedStudentResult] = useState(null);
   const [currentReviewQuestionIndex, setCurrentReviewQuestionIndex] = useState(0);
   const [passages, setPassages] = useState([]);
+  const [examView, setExamView] = useState(null);
   const [loadingPassages, setLoadingPassages] = useState(false);
+  const [passageSearch, setPassageSearch] = useState("");
   const [passageError, setPassageError] = useState("");
   const [showCreatePassage, setShowCreatePassage] = useState(false);
+  const [questionView, setQuestionView] = useState(null);
+  const filteredPassages = passages.filter((passage) => {
+  const searchTerm = passageSearch.trim().toLowerCase();
+
+    if (!searchTerm) return true;
+
+    return (
+      (passage.title || "").toLowerCase().includes(searchTerm) ||
+      (passage.category || "").toLowerCase().includes(searchTerm) ||
+      (passage.status || "").toLowerCase().includes(searchTerm)
+    );
+  });
   const [questions, setQuestions] = useState([]);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [questionError, setQuestionError] = useState("");
@@ -259,8 +411,14 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [selectedQuestionPassage, setSelectedQuestionPassage] = useState(null);
+  const [selectedQuestionDate, setSelectedQuestionDate] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showAiCreate, setShowAiCreate] = useState(false);
+  const [showExamDeleteModal, setShowExamDeleteModal] = useState(false);
+  const [examToDelete, setExamToDelete] = useState(null);
+  const [deletingExam, setDeletingExam] = useState(false);
+  const [examDeleteError, setExamDeleteError] = useState("");
   const [
     showSentenceConstructionCreate,
     setShowSentenceConstructionCreate,
@@ -951,13 +1109,155 @@ async function loadAvailableClassSubjects() {
     setPublishingExamId(null);
   }
 }
+  async function handleExamDeleteAction(action) {
+  if (!examToDelete) return;
 
+  setDeletingExam(true);
+  setExamDeleteError("");
+
+  try {
+    const endpoint =
+      action === "archive"
+        ? `${API_BASE_URL}/api/exams/${examToDelete.id}/archive`
+        : `${API_BASE_URL}/api/exams/${examToDelete.id}`;
+
+    const response = await authenticatedFetch(
+      endpoint,
+      {
+        method: action === "archive" ? "POST" : "DELETE",
+      },
+      accessToken
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to process the exam."
+      );
+    }
+
+    // Remove the exam from the active dashboard list.
+    setExams((current) =>
+      current.filter((exam) => exam.id !== examToDelete.id)
+    );
+
+    // Reset navigation if the selected date no longer has exams.
+    setShowExamDeleteModal(false);
+    setExamToDelete(null);
+    setExamDeleteError("");
+
+    setSelectedExamDate(null);
+    setSelectedExamSubject(null);
+
+    setError("");
+  } catch (err) {
+    setExamDeleteError(
+      err.message || "Unable to process the exam."
+    );
+  } finally {
+    setDeletingExam(false);
+  }
+}
   const visibleExams = exams.filter((exam) =>
     `${exam.title} ${exam.subject} ${exam.level || ""} ${exam.status}`
       .toLowerCase()
       .includes(search.toLowerCase())
   );
+  const availableSubjects = [
+    ...new Set(
+      exams
+        .filter((exam) => exam.subject)
+        .map((exam) => exam.subject)
+    ),
+  ].sort();
+  const availableQuestionPassages = passages.filter((passage) =>
+    questions.some(
+      (question) => question.passage_id === passage.id
+    )
+  );
 
+  const questionsForSelectedPassage = selectedQuestionPassage
+    ? questions.filter(
+        (question) =>
+          question.passage_id === selectedQuestionPassage
+      )
+    : [];
+
+  const availableQuestionDates = [
+    ...new Set(
+      questionsForSelectedPassage
+        .filter((question) => question.created_at)
+        .map((question) => {
+          const date = new Date(question.created_at);
+
+          return [
+            date.getFullYear(),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            String(date.getDate()).padStart(2, "0"),
+          ].join("-");
+        })
+    ),
+  ].sort((a, b) => b.localeCompare(a));
+
+  const questionsForSelectedDate = selectedQuestionDate
+    ? questionsForSelectedPassage.filter((question) => {
+        if (!question.created_at) return false;
+
+        const date = new Date(question.created_at);
+
+        const questionDate = [
+          date.getFullYear(),
+          String(date.getMonth() + 1).padStart(2, "0"),
+          String(date.getDate()).padStart(2, "0"),
+        ].join("-");
+
+        return questionDate === selectedQuestionDate;
+      })
+    : [];
+  const examsForSelectedSubject = selectedExamSubject
+  ? exams.filter(
+      (exam) => exam.subject === selectedExamSubject
+    )
+  : [];
+
+const availableExamDates = [
+  ...new Set(
+    examsForSelectedSubject
+      .filter((exam) => exam.created_at)
+      .map((exam) => {
+        const date = new Date(exam.created_at);
+
+        return [
+          date.getFullYear(),
+          String(date.getMonth() + 1).padStart(2, "0"),
+          String(date.getDate()).padStart(2, "0"),
+        ].join("-");
+      })
+  ),
+].sort((a, b) => {
+  const dateA = new Date(`${a}T00:00:00`);
+  const dateB = new Date(`${b}T00:00:00`);
+
+  return dateA - dateB;
+});
+console.log("Sorted dates:", availableExamDates);
+
+const examsForSelectedDate = selectedExamDate
+  ? examsForSelectedSubject.filter((exam) => {
+      if (!exam.created_at) return false;
+
+      const date = new Date(exam.created_at);
+
+      const examDate = [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+      ].join("-");
+
+      return examDate === selectedExamDate;
+    })
+  : [];
   const pageDescriptions = {
     Overview: "A live view of your exams and assessment work.",
     Exams: "Create and manage exams for your institution.",
@@ -1015,41 +1315,39 @@ async function loadAvailableClassSubjects() {
             </div>
 
             {activePage === "Exams" && (
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <div className="exam-view-selector">
                 <button
-                  className="teacher-primary"
                   type="button"
-                  onClick={async () => {
-                    setError("");
-                    setSelectedClassSubjectId("");
-                    setShowCreate(true);
-                    await loadAvailableClassSubjects();
+                  className={
+                    examView === "previous"
+                      ? "teacher-primary selected"
+                      : "teacher-primary"
+                  }
+                  onClick={() => {
+                    setExamView("previous");
+                    setSelectedExamSubject(null);
+                    setSelectedExamDate(null);
+                    setSearch("");
                   }}
                 >
-                  <Plus size={16} /> Create exam
+                  Previous Exams
                 </button>
 
                 <button
-                  className="teacher-primary"
                   type="button"
-                  onClick={async () => {
-                    setError("");
-                    setShowAiCreate(true);
-                    await loadAvailableClassSubjects();
+                  className={
+                    examView === "create"
+                      ? "teacher-primary selected"
+                      : "teacher-primary"
+                  }
+                  onClick={() => {
+                    setExamView("create");
+                    setSelectedExamSubject(null);
+                    setSelectedExamDate(null);
+                    setSearch("");
                   }}
                 >
-                  ✨ Create Exam Using AI
-                </button>
-                <button
-                  className="teacher-primary"
-                  type="button"
-                  onClick={async () => {
-                    setError("");
-                    setShowSentenceConstructionCreate(true);
-                    await loadAvailableClassSubjects();
-                  }}
-                >
-                  ✨ Create Sentence Construction Exam
+                  Create Exams
                 </button>
               </div>
             )}
@@ -1089,91 +1387,277 @@ async function loadAvailableClassSubjects() {
               </section>
             </div>
           )}
-
-          {activePage === "Exams" && (
+          {activePage === "Exams" && examView === "create" && (
             <section className="teacher-panel">
-              <div className="teacher-panel-head">
-                <div>
-                  <h2>Your exams</h2>
-                  <p>Exams are saved in your institution's database.</p>
-                </div>
-                <label className="teacher-search">
-                  <Search size={15} />
-                  <input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search exams..."
-                  />
-                </label>
+              <h2>Create Exams</h2>
+              <p>Select how you would like to create your examination.</p>
+
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "20px" }}>
+                <button
+                  className="teacher-primary"
+                  type="button"
+                  onClick={async () => {
+                    setError("");
+                    setSelectedClassSubjectId("");
+                    setShowCreate(true);
+                    await loadAvailableClassSubjects();
+                  }}
+                >
+                  <Plus size={16} /> Create exam
+                </button>
+
+                <button
+                  className="teacher-primary"
+                  type="button"
+                  onClick={async () => {
+                    setError("");
+                    setShowAiCreate(true);
+                    await loadAvailableClassSubjects();
+                  }}
+                >
+                  ✨ Create Exam Using AI
+                </button>
+
+                <button
+                  className="teacher-primary"
+                  type="button"
+                  onClick={async () => {
+                    setError("");
+                    setShowSentenceConstructionCreate(true);
+                    await loadAvailableClassSubjects();
+                  }}
+                >
+                  ✨ Create Sentence Construction Exam
+                </button>
               </div>
+            </section>
+          )}
 
-              {loading ? (
-                <div className="teacher-empty">Loading exams…</div>
-              ) : visibleExams.length === 0 ? (
-                <div className="teacher-empty">
-                  {exams.length === 0 ? "No exams yet. Create your first draft exam." : "No matching exams found."}
-                </div>
-              ) : (
-                <div className="teacher-table-wrap">
-                  <table className="teacher-table">
-                    <thead>
-                      <tr>
-                        <th>Exam</th>
-                        <th>Subject</th>
-                        <th>Level</th>
-                        <th>Duration</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+          
+          {activePage === "Exams" && examView === "previous" && (
+            <section className="teacher-panel">
 
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleExams.map((exam) => (
-                        <tr key={exam.id}>
-                          <td><strong>{exam.title}</strong><br /><small>ID: {exam.id}</small></td>
-                          <td>{exam.subject}</td>
-                          <td>{exam.level || "—"}</td>
-                          <td>{exam.duration_minutes ? `${exam.duration_minutes} min` : "—"}</td>
-                          <td><span className="teacher-status">{exam.status}</span></td>
-                          <td>
-                            <button
-                                type="button"
-                                className="teacher-primary"
-                                onClick={() => {
-                                setSelectedExam(exam);
-                                setExamQuestions([]);
-                                setSelectedQuestionId("");
-                                setExamQuestionsError("");
-                                setQuestionError("");
-                                setShowManageQuestions(true);
+              {/* STEP 1: SUBJECT SELECTION */}
+              {!selectedExamSubject && (
+                <div className="exam-category-section">
+                  <h3>Select a subject</h3>
 
-                                loadExamQuestions(exam.id);
-                                loadQuestions();
-                                }}
-                            >
-                                Manage questions
-                            </button>
-                            {exam.status === "Draft" && (
-                            <button
-                                type="button"
-                                className="teacher-primary"
-                                onClick={() => publishExam(exam)}
-                                disabled={publishingExamId === exam.id}
-                            >
-                                {publishingExamId === exam.id
-                                ? "Publishing..."
-                                : "Publish"}
-                            </button>
-                            )}
-                            </td>
-                        </tr>
+                  {loading ? (
+                    <div className="teacher-empty">Loading exams…</div>
+                  ) : availableSubjects.length === 0 ? (
+                    <div className="teacher-empty">
+                      No subjects or exams available yet.
+                    </div>
+                  ) : (
+                    <div className="exam-category-grid">
+                      {availableSubjects.map((subject) => (
+                        <button
+                          key={subject}
+                          type="button"
+                          className="exam-category-button"
+                          onClick={() => {
+                            setSelectedExamSubject(subject);
+                            setSelectedExamDate(null);
+                          }}
+                        >
+                          {subject}
+                        </button>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 2: PUBLICATION DATE SELECTION */}
+              {selectedExamSubject && !selectedExamDate && (
+                <div className="exam-date-section">
+
+                  <button
+                    type="button"
+                    className="teacher-primary"
+                    onClick={() => {
+                      setSelectedExamSubject(null);
+                      setSelectedExamDate(null);
+                    }}
+                  >
+                    ← Back to subjects
+                  </button>
+
+                  <h3>{selectedExamSubject} – Select a date</h3>
+
+                  {loading ? (
+                    <div className="teacher-empty">Loading exams…</div>
+                  ) : availableExamDates.length === 0 ? (
+                    <div className="teacher-empty">
+                      No exam creation dates available.
+                    </div>
+                  ) : (
+                    <div className="exam-category-grid">
+                      {availableExamDates.map((date) => (
+                        <button
+                          key={date}
+                          type="button"
+                          className="exam-category-button"
+                          onClick={() => setSelectedExamDate(date)}
+                        >
+                          {new Date(`${date}T00:00:00`).toLocaleDateString(
+                            "en-GB",
+                            {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            }
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STEP 3: EXAMS FOR SELECTED DATE */}
+              {selectedExamSubject && selectedExamDate && (
+                <div className="exam-list-section">
+
+                  <div className="teacher-panel-head">
+                    <div>
+                      <h2>Your exams</h2>
+                      <p>Exams are saved in your institution's database.</p>
+                    </div>
+
+                    <label className="teacher-search">
+                      <Search size={15} />
+                      <input
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="Search exams..."
+                      />
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="teacher-primary"
+                    onClick={() => setSelectedExamDate(null)}
+                  >
+                    ← Back to dates
+                  </button>
+
+                  <h3>
+                    {selectedExamSubject} –{" "}
+                    {new Date(`${selectedExamDate}T00:00:00`).toLocaleDateString(
+                      "en-GB",
+                      {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      }
+                    )}
+                  </h3>
+
+                  {loading ? (
+                    <div className="teacher-empty">Loading exams…</div>
+                  ) : examsForSelectedDate.length === 0 ? (
+                    <div className="teacher-empty">
+                      No exams found for this date.
+                    </div>
+                  ) : (
+                    <div className="teacher-table-wrap">
+                      <table className="teacher-table">
+                        <thead>
+                          <tr>
+                            <th>Exam</th>
+                            <th>Level</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          {examsForSelectedDate
+                            .filter((exam) =>
+                              exam.title?.toLowerCase().includes(search.toLowerCase())
+                            )
+                            .map((exam) => (
+                              <tr key={exam.id}>
+                                <td>
+                                  <strong>{exam.title}</strong>
+                                  <br />
+                                  <small>ID: {exam.id}</small>
+                                </td>
+
+                                <td>{exam.level || "—"}</td>
+
+                                <td>
+                                  {exam.duration_minutes
+                                    ? `${exam.duration_minutes} min`
+                                    : "—"}
+                                </td>
+
+                                <td>
+                                  <span className="teacher-status">
+                                    {exam.status}
+                                  </span>
+                                </td>
+
+                                <td>
+                                  {exam.status !== "Published" && (
+                                    <button
+                                      type="button"
+                                      className="teacher-primary"
+                                      onClick={() => {
+                                        setSelectedExam(exam);
+                                        setExamQuestions([]);
+                                        setSelectedQuestionId("");
+                                        setExamQuestionsError("");
+                                        setQuestionError("");
+                                        setShowManageQuestions(true);
+
+                                        loadExamQuestions(exam.id);
+                                        loadQuestions();
+                                      }}
+                                    >
+                                      Manage questions
+                                    </button>
+                                  )}
+
+                                  {exam.status === "Draft" && (
+                                    <button
+                                      type="button"
+                                      className="teacher-primary"
+                                      onClick={() => publishExam(exam)}
+                                      disabled={publishingExamId === exam.id}
+                                    >
+                                      {publishingExamId === exam.id
+                                        ? "Publishing..."
+                                        : "Publish"}
+                                    </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    className="teacher-danger"
+                                    onClick={() => {
+                                      setExamToDelete(exam);
+                                      setExamDeleteError("");
+                                      setShowExamDeleteModal(true);
+                                    }}
+                                  >
+                                    Delete Exam
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </section>
           )}
+
 
           
             {activePage === "Passages" && (
@@ -1183,6 +1667,15 @@ async function loadAvailableClassSubjects() {
                     <h2>Your passages</h2>
                     <p>Reading passages stored for your institution.</p>
                 </div>
+                <label className="teacher-search">
+                  <Search size={15} />
+                  <input
+                      type="text"
+                      value={passageSearch}
+                      onChange={(event) => setPassageSearch(event.target.value)}
+                      placeholder="Search passages..."
+                  />
+              </label>
 
                 <button
                     className="teacher-primary"
@@ -1205,9 +1698,13 @@ async function loadAvailableClassSubjects() {
                 {loadingPassages ? (
                 <div className="teacher-empty">Loading passages...</div>
                 ) : passages.length === 0 ? (
-                <div className="teacher-empty">
-                    No passages yet. Create your first reading passage.
-                </div>
+                    <div className="teacher-empty">
+                        No passages yet. Create your first reading passage.
+                    </div>
+                ) : filteredPassages.length === 0 ? (
+                    <div className="teacher-empty">
+                        No matching passages found. Try a different search.
+                    </div>
                 ) : (
                 <div className="teacher-table-wrap">
                     <table className="teacher-table">
@@ -1220,7 +1717,7 @@ async function loadAvailableClassSubjects() {
                         </tr>
                     </thead>
                     <tbody>
-                        {passages.map((passage) => (
+                        {filteredPassages.map((passage) => (
                         <tr key={passage.id}>
                             <td>
                             <strong>{passage.title}</strong>
@@ -1250,6 +1747,8 @@ async function loadAvailableClassSubjects() {
             
 {activePage === "Questions" && (
   <section className="teacher-panel">
+
+    {/* PAGE HEADER */}
     <div className="teacher-panel-head">
       <div>
         <h2>Your questions</h2>
@@ -1262,6 +1761,13 @@ async function loadAvailableClassSubjects() {
         className="teacher-primary"
         type="button"
         onClick={() => {
+          setEditingQuestionId(null);
+          setQuestionPassageId("");
+          setQuestionPrompt("");
+          setQuestionType("Short answer");
+          setQuestionOptions("");
+          setQuestionAnswer("");
+          setQuestionCriteria("");
           setQuestionError("");
           setShowCreateQuestion(true);
         }}
@@ -1276,108 +1782,379 @@ async function loadAvailableClassSubjects() {
       </div>
     )}
 
+    {/* LOADING */}
     {loadingQuestions ? (
       <div className="teacher-empty">Loading questions...</div>
-    ) : questions.length === 0 ? (
-      <div className="teacher-empty">
-        No questions yet. Create your first question.
-      </div>
     ) : (
-      <div className="teacher-table-wrap">
-        <table
-          className="teacher-table"
-          style={{ width: "100%", tableLayout: "fixed" }}
-        >
-          <thead>
-            <tr>
-              <th style={{ width: "34%" }}>Question</th>
-              <th style={{ width: "18%" }}>Passage</th>
-              <th style={{ width: "13%" }}>Type</th>
-              <th style={{ width: "8%" }}>Marks</th>
-              <th style={{ width: "14%" }}>Marking criteria</th>
-              <th style={{ width: "13%" }}>Actions</th>
-            </tr>
-          </thead>
+      <>
+        {/* CATEGORY SELECTION */}
+        <div className="exam-view-selector">
+          <button
+            type="button"
+            className={
+              questionView === "passage"
+                ? "teacher-primary selected"
+                : "teacher-primary"
+            }
+            onClick={() => {
+              setQuestionView("passage");
+              setSelectedQuestionPassage(null);
+              setSelectedQuestionDate(null);
+            }}
+          >
+            Passage-based Questions
+          </button>
 
-          <tbody>
-            {questions.map((question) => {
-              const linkedPassage = passages.find(
-                (passage) => passage.id === question.passage_id
-              );
+          <button
+            type="button"
+            className={
+              questionView === "standalone"
+                ? "teacher-primary selected"
+                : "teacher-primary"
+            }
+            onClick={() => {
+              setQuestionView("standalone");
+              setSelectedQuestionPassage(null);
+              setSelectedQuestionDate(null);
+            }}
+          >
+            Standalone Questions
+          </button>
+        </div>
 
-              return (
-                <tr key={question.id}>
-                  <td>
-                    <strong
-                      title={question.prompt}
-                      style={{
-                        display: "block",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        maxWidth: "100%",
-                      }}
+        {/* ===================================== */}
+        {/* PASSAGE-BASED QUESTIONS */}
+        {/* ===================================== */}
+
+        {questionView === "passage" && (
+          <div>
+
+            {/* STEP 1: SELECT PASSAGE */}
+            {!selectedQuestionPassage && (
+              <div className="exam-category-section">
+                <h3>Select a passage</h3>
+
+                {availableQuestionPassages.length === 0 ? (
+                  <div className="teacher-empty">
+                    No passages available. Create a passage first.
+                  </div>
+                ) : (
+                  <div className="exam-category-grid">
+                    {availableQuestionPassages.map((passage) => (
+                      <button
+                        key={passage.id}
+                        type="button"
+                        className="exam-category-button"
+                        onClick={() => {
+                          setSelectedQuestionPassage(passage.id);
+                          setSelectedQuestionDate(null);
+                        }}
+                      >
+                        {passage.title}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* STEP 2: SELECT DATE */}
+            {selectedQuestionPassage && !selectedQuestionDate && (
+              <div className="exam-date-section">
+
+                <button
+                  type="button"
+                  className="teacher-primary"
+                  onClick={() => {
+                    setSelectedQuestionPassage(null);
+                    setSelectedQuestionDate(null);
+                  }}
+                >
+                  ← Back to passages
+                </button>
+
+                <h3>
+                  {passages.find(
+                    (p) => p.id === selectedQuestionPassage
+                  )?.title || "Selected passage"} – Select a date
+                </h3>
+
+                {availableQuestionDates.length === 0 ? (
+                  <div className="teacher-empty">
+                    No question creation dates available.
+                  </div>
+                ) : (
+                  <div className="exam-category-grid">
+                    {availableQuestionDates.map((date) => (
+                      <button
+                        key={date}
+                        type="button"
+                        className="exam-category-button"
+                        onClick={() => setSelectedQuestionDate(date)}
+                      >
+                        {new Date(`${date}T00:00:00`).toLocaleDateString(
+                          "en-GB",
+                          {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          }
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* STEP 3: QUESTIONS FOR SELECTED DATE */}
+            {selectedQuestionPassage && selectedQuestionDate && (
+              <div className="exam-list-section">
+
+                <button
+                  type="button"
+                  className="teacher-primary"
+                  onClick={() => setSelectedQuestionDate(null)}
+                >
+                  ← Back to dates
+                </button>
+
+                <h3>
+                  {passages.find(
+                    (p) => p.id === selectedQuestionPassage
+                  )?.title || "Selected passage"}
+                  {" – "}
+                  {new Date(
+                    `${selectedQuestionDate}T00:00:00`
+                  ).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </h3>
+
+                {questionsForSelectedDate.length === 0 ? (
+                  <div className="teacher-empty">
+                    No questions found for this passage and date.
+                  </div>
+                ) : (
+                  <div className="teacher-table-wrap">
+                    <table
+                      className="teacher-table"
+                      style={{ width: "100%", tableLayout: "fixed" }}
                     >
-                      {question.prompt}
-                    </strong>
+                      <thead>
+                        <tr>
+                          <th style={{ width: "34%" }}>Question</th>
+                          <th style={{ width: "18%" }}>Passage</th>
+                          <th style={{ width: "13%" }}>Type</th>
+                          <th style={{ width: "8%" }}>Marks</th>
+                          <th style={{ width: "14%" }}>Marking criteria</th>
+                          <th style={{ width: "13%" }}>Actions</th>
+                        </tr>
+                      </thead>
 
-                    <small>ID: {question.id}</small>
-                  </td>
+                      <tbody>
+                        {questionsForSelectedDate.map((question) => {
+                          const linkedPassage = passages.find(
+                            (passage) =>
+                              passage.id === question.passage_id
+                          );
 
-                  <td>
-                    {linkedPassage
-                      ? linkedPassage.title
-                      : question.passage_id
-                        ? "Passage unavailable"
-                        : "Standalone"}
-                  </td>
+                          return (
+                            <tr key={question.id}>
+                              <td>
+                                <strong
+                                  title={question.prompt}
+                                  style={{
+                                    display: "block",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    maxWidth: "100%",
+                                  }}
+                                >
+                                  {question.prompt}
+                                </strong>
+                                <small>ID: {question.id}</small>
+                              </td>
 
-                  <td>{question.question_type}</td>
+                              <td>
+                                {linkedPassage
+                                  ? linkedPassage.title
+                                  : "Passage unavailable"}
+                              </td>
 
-                  <td>{question.marks}</td>
+                              <td>{question.question_type}</td>
+                              <td>{question.marks}</td>
 
-                  <td>
-                    {Array.isArray(question.marking_criteria)
-                      ? `${question.marking_criteria.length} criteria`
-                      : "Not available"}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="teacher-secondary"
-                      onClick={() => {
-                        setEditingQuestionId(question.id);
-                        setQuestionPassageId(
-                          question.passage_id
-                            ? String(question.passage_id)
-                            : ""
-                        );
-                        setQuestionPrompt(question.prompt || "");
-                        setQuestionType(question.question_type || "Short answer");
-                        setQuestionOptions(
-                          Array.isArray(question.options)
-                            ? question.options.join("\n")
-                            : ""
-                        );
-                        setQuestionAnswer(question.correct_answer || "");
-                        setQuestionCriteria(
-                          (question.marking_criteria || [])
-                            .map((item) => item.criterion)
-                            .join("\n")
-                        );
-                        setQuestionError("");
-                        setShowCreateQuestion(true);
-                      }}
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                              <td>
+                                {Array.isArray(question.marking_criteria)
+                                  ? `${question.marking_criteria.length} criteria`
+                                  : "Not available"}
+                              </td>
+
+                              <td>
+                                <button
+                                  type="button"
+                                  className="teacher-secondary"
+                                  onClick={() => {
+                                    setEditingQuestionId(question.id);
+                                    setQuestionPassageId(
+                                      question.passage_id
+                                        ? String(question.passage_id)
+                                        : ""
+                                    );
+                                    setQuestionPrompt(question.prompt || "");
+                                    setQuestionType(
+                                      question.question_type || "Short answer"
+                                    );
+                                    setQuestionOptions(
+                                      Array.isArray(question.options)
+                                        ? question.options.join("\n")
+                                        : ""
+                                    );
+                                    setQuestionAnswer(
+                                      question.correct_answer || ""
+                                    );
+                                    setQuestionCriteria(
+                                      (question.marking_criteria || [])
+                                        .map((item) =>
+                                          typeof item === "string"
+                                            ? item
+                                            : item.criterion
+                                        )
+                                        .join("\n")
+                                    );
+                                    setQuestionError("");
+                                    setShowCreateQuestion(true);
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===================================== */}
+        {/* STANDALONE QUESTIONS */}
+        {/* ===================================== */}
+
+        {questionView === "standalone" && (
+          <div className="exam-list-section">
+            <h3>Standalone Questions</h3>
+
+            <p>
+              Questions created independently without being linked to a passage.
+            </p>
+
+            {questions.filter(
+              (question) => question.passage_id == null
+            ).length === 0 ? (
+              <div className="teacher-empty">
+                No standalone questions found. Click Create question to add one.
+              </div>
+            ) : (
+              <div className="teacher-table-wrap">
+                <table className="teacher-table">
+                  <thead>
+                    <tr>
+                      <th>Question</th>
+                      <th>Type</th>
+                      <th>Marks</th>
+                      <th>Marking criteria</th>
+                      <th>Created</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {questions
+                      .filter(
+                        (question) => question.passage_id == null
+                      )
+                      .map((question) => (
+                        <tr key={question.id}>
+                          <td>
+                            <strong title={question.prompt}>
+                              {question.prompt}
+                            </strong>
+                            <br />
+                            <small>ID: {question.id}</small>
+                          </td>
+
+                          <td>{question.question_type}</td>
+
+                          <td>{question.marks}</td>
+
+                          <td>
+                            {Array.isArray(question.marking_criteria)
+                              ? `${question.marking_criteria.length} criteria`
+                              : "Not available"}
+                          </td>
+
+                          <td>
+                            {question.created_at
+                              ? new Date(
+                                  question.created_at
+                                ).toLocaleDateString("en-GB")
+                              : "—"}
+                          </td>
+
+                          <td>
+                            <button
+                              type="button"
+                              className="teacher-secondary"
+                              onClick={() => {
+                                setEditingQuestionId(question.id);
+                                setQuestionPassageId("");
+                                setQuestionPrompt(question.prompt || "");
+                                setQuestionType(
+                                  question.question_type || "Short answer"
+                                );
+                                setQuestionOptions(
+                                  Array.isArray(question.options)
+                                    ? question.options.join("\n")
+                                    : ""
+                                );
+                                setQuestionAnswer(
+                                  question.correct_answer || ""
+                                );
+                                setQuestionCriteria(
+                                  (question.marking_criteria || [])
+                                    .map((item) =>
+                                      typeof item === "string"
+                                        ? item
+                                        : item.criterion
+                                    )
+                                    .join("\n")
+                                );
+                                setQuestionError("");
+                                setShowCreateQuestion(true);
+                              }}
+                            >
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+      </>
     )}
   </section>
 )}
@@ -2440,6 +3217,68 @@ async function loadAvailableClassSubjects() {
         </div>
       </form>
     </section>
+  </div>
+)}
+      {showExamDeleteModal && examToDelete && (
+  <div className="teacher-modal-overlay">
+    <div className="teacher-modal">
+      <h2>Manage Exam</h2>
+
+      <p>
+        What would you like to do with{" "}
+        <strong>{examToDelete.title}</strong>?
+      </p>
+
+      <div className="exam-delete-options">
+        <button
+          type="button"
+          className="teacher-primary"
+          disabled={deletingExam}
+          onClick={() => handleExamDeleteAction("archive")}
+        >
+          {deletingExam ? "Processing..." : "Archive Exam"}
+        </button>
+
+        <p>
+          Hide this exam from the active list while preserving
+          student attempts, answers, and evaluations.
+        </p>
+
+        <button
+          type="button"
+          className="teacher-danger"
+          disabled={deletingExam}
+          onClick={() => handleExamDeleteAction("delete")}
+        >
+          {deletingExam ? "Processing..." : "Delete Permanently"}
+        </button>
+
+        <p>
+          Permanently delete the exam and its student attempts,
+          submitted answers, and AI evaluations. Questions and
+          passages will be preserved.
+        </p>
+      </div>
+
+      {examDeleteError && (
+        <div className="teacher-error">
+          {examDeleteError}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="teacher-secondary"
+        disabled={deletingExam}
+        onClick={() => {
+          setShowExamDeleteModal(false);
+          setExamToDelete(null);
+          setExamDeleteError("");
+        }}
+      >
+        Cancel
+      </button>
+    </div>
   </div>
 )}
       {showAiCreate && (
