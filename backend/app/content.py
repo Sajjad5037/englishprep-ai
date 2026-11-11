@@ -242,7 +242,11 @@ def question_to_dict(question: Question) -> dict:
         "marks": question.marks,
         "institution_id": question.institution_id,
         "created_by_user_id": question.created_by_user_id,
-        "created_at": question.created_at,
+        "created_at": (
+            question.created_at.isoformat()
+            if question.created_at
+            else None
+        ),
     }
 
 

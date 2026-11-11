@@ -5,7 +5,7 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 from app.ai_exam_generation import generate_ai_exam
 from app.sentence_construction_generation import (
@@ -291,7 +291,7 @@ def validate_ai_exam_request(request: AIGenerateExamRequest):
     if total_questions > 30:
         raise HTTPException(
             status_code=422,
-            detail="An AI-generated examination cannot exceed 100 questions.",
+            detail="An AI-generated examination cannot exceed 30 questions.",
         )
 
     return total_questions
@@ -413,12 +413,101 @@ def exam_to_dict(exam: Exam) -> dict:
         "status": exam.status,
         "institution_id": exam.institution_id,
         "created_by_user_id": exam.created_by_user_id,
-        "published_at": exam.published_at,
-        "created_at": exam.created_at,
-        "updated_at": exam.updated_at,
+        "published_at": exam.published_at.isoformat() if exam.published_at else None,
+        "created_at": exam.created_at.isoformat() if exam.created_at else None,
+        "updated_at": exam.updated_at.isoformat() if exam.updated_at else None,
     }
 
 
+@router.post("/{exam_id}/archive")
+def archive_exam(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_user),
+):
+    """Archive an exam without deleting student records."""
+
+    exam = db.scalar(
+        select(Exam).where(
+            Exam.id == exam_id,
+            Exam.institution_id == user.institution_id,
+        )
+    )
+
+    if exam is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found.",
+        )
+
+    # Teachers can only archive exams they created.
+    if user.role == "teacher" and exam.created_by_user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only archive exams you created.",
+        )
+
+    if exam.archived_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This exam is already archived.",
+        )
+
+    exam.archived_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(exam)
+
+    return {
+        "message": "Exam archived successfully.",
+        "exam_id": exam.id,
+        "archived_at": exam.archived_at.isoformat(),
+    }
+@router.delete("/{exam_id}")
+def delete_exam(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_institution_user),
+):
+    """Permanently delete an exam and its associated student data."""
+
+    exam = db.scalar(
+        select(Exam).where(
+            Exam.id == exam_id,
+            Exam.institution_id == user.institution_id,
+        )
+    )
+
+    if exam is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found.",
+        )
+
+    # Teachers can only delete exams they created.
+    if user.role == "teacher" and exam.created_by_user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete exams you created.",
+        )
+
+    try:
+        db.delete(exam)
+        db.commit()
+
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to permanently delete exam %s", exam_id)
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to delete this exam. Please try again.",
+        )
+
+    return {
+        "message": "Exam and associated student records permanently deleted.",
+        "exam_id": exam_id,
+    }
 @router.get("")
 def list_exams(
     db: Session = Depends(get_db),
@@ -427,7 +516,8 @@ def list_exams(
     """List exams assigned to the logged-in user's subjects."""
 
     statement = select(Exam).where(
-        Exam.institution_id == user.institution_id
+        Exam.institution_id == user.institution_id,
+        Exam.archived_at.is_(None),
     )
 
     # Teachers only see exams assigned to subjects they currently teach.
@@ -2491,6 +2581,12 @@ def get_student_exam(
             "question_type": snapshot.get("question_type"),
             "options": snapshot.get("options"),
             "marks": snapshot.get("marks"),
+
+            # Sentence construction information
+            "sentence_construction_data": snapshot.get(
+                "sentence_construction_data"
+            ),
+
             "passage": snapshot.get("passage"),
 
             # Grouped question information

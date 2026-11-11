@@ -111,6 +111,11 @@ class Exam(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    archived_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+    )
 
     created_at = Column(
         DateTime(timezone=True),
@@ -257,6 +262,7 @@ class ExamQuestion(Base):
         nullable=False,
         server_default=func.now(),
     )
+
 class Question(Base):
     """Question belonging to an institution, optionally linked to a passage."""
 
