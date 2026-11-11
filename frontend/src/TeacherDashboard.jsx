@@ -903,12 +903,20 @@ useEffect(() => {
     isChecking = true;
 
     try {
+      console.log(
+        "Checking passage scan status:",
+        scanSessionId
+      );
       const response = await authenticatedFetch(
         `${API_BASE_URL}/api/passage-scanner/sessions/${scanSessionId}`,
         {
           method: "GET",
         },
         accessToken
+      );
+      console.log(
+        "Passage status HTTP response:",
+        response.status
       );
 
       if (!response.ok) {
