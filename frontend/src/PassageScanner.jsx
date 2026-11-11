@@ -27,7 +27,10 @@ function PassageScanner({ token, sessionId }) {
             console.log("Number of selected files:", files.length);
             console.log("Selected files:", files);
 
-            setSelectedImages(files);
+            setSelectedImages((previousImages) => [
+            ...previousImages,
+            ...files,
+            ]);
             }}
             />
 
