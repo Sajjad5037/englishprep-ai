@@ -1,5 +1,4 @@
-
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   LayoutDashboard,
   ClipboardList,
@@ -12,12 +11,12 @@ import {
   LogOut,
   X,
 } from "lucide-react";
-import { authenticatedFetch } from "./api";
+
 import AiExamGenerator from "./AiExamGenerator";
 import SentenceConstructionGenerator from "./SentenceConstructionGenerator";
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
-).replace(/\/$/, "");
+import QRCode from "qrcode";
+import { authenticatedFetch, API_BASE_URL } from "./api";
+
 
 const styles = `
 .teacher-app { min-height:100vh; display:grid; grid-template-columns:230px minmax(0,1fr); color:#26394d; background:#f5f7fb; font-family:"DM Sans","Segoe UI",sans-serif; }
@@ -407,6 +406,12 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [passageTitle, setPassageTitle] = useState("");
   const [passageCategory, setPassageCategory] = useState("Reading comprehension");
   const [passageContent, setPassageContent] = useState("");
+  const [showPassageScanner, setShowPassageScanner] = useState(false);
+  const [scanSessionId, setScanSessionId] = useState(null);
+  const [scanQrCode, setScanQrCode] = useState("");
+  const [scanStatus, setScanStatus] = useState("idle");
+  const [scanError, setScanError] = useState("");
+  const scanPollingRef = useRef(null);
   const [savingPassage, setSavingPassage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -785,6 +790,55 @@ async function createQuestion(event) {
     setSavingQuestion(false);
   }
 }
+
+const startPassageScanning = async () => {
+  try {
+    setScanError("");
+    setScanStatus("creating");
+
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/passage-scanner/sessions`,
+      {
+        method: "POST",
+      },
+      accessToken
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.detail || "Unable to start the scanning session."
+      );
+    }
+
+    const session = await response.json();
+    console.log("Scanning session created:", session);
+
+    const mobileUrl = new URL(window.location.origin);
+    mobileUrl.searchParams.set("scan_token", session.token);
+    mobileUrl.searchParams.set("session_id", session.session_id);
+    console.log("Generating QR code...");
+    const qrCodeDataUrl = await QRCode.toDataURL(
+      mobileUrl.toString(),
+      {
+        width: 280,
+        margin: 2,
+        errorCorrectionLevel: "M",
+      }
+    );
+    console.log("QR code generated successfully");
+    setScanSessionId(session.session_id);
+    setScanQrCode(qrCodeDataUrl);
+    setScanStatus("waiting");
+    setShowPassageScanner(true);
+    console.log("Opening scanner panel");
+
+  } catch (error) {
+    console.error("Passage scanning error:", error);
+    setScanError(error.message || "Unable to start scanning.");
+    setScanStatus("error");
+  }
+};
 
 async function createPassage(event) {
   event.preventDefault();
@@ -3455,6 +3509,22 @@ const examsForSelectedDate = selectedExamDate
             placeholder="e.g. Narrative"
           />
         </label>
+        <div className="passage-scan-actions">
+          <button
+            type="button"
+            className="teacher-secondary"
+            onClick={startPassageScanning}
+            disabled={scanStatus === "creating"}
+          >
+            {scanStatus === "creating"
+              ? "Preparing scanner..."
+              : "Scan passage with phone"}
+          </button>
+
+          <span className="passage-scan-hint">
+            Scan printed pages using your mobile camera and convert them into text.
+          </span>
+        </div>
 
         <label className="teacher-field">
           Passage text
@@ -3466,6 +3536,41 @@ const examsForSelectedDate = selectedExamDate
             required
           />
         </label>
+                {showPassageScanner && (
+          <div className="passage-scan-panel">
+            <div className="passage-scan-panel-header">
+              <h3>Scan passage using your phone</h3>
+
+              <button
+                type="button"
+                onClick={() => setShowPassageScanner(false)}
+                aria-label="Close scanner"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p>
+              Open your phone camera and scan this QR code.
+            </p>
+
+            {scanQrCode && (
+              <img
+                src={scanQrCode}
+                alt="QR code to connect mobile scanner"
+                className="passage-scan-qr"
+              />
+            )}
+
+            <p>
+              Waiting for your phone to upload the passage...
+            </p>
+          </div>
+        )}
+
+        {scanError && (
+          <p className="passage-scan-error">{scanError}</p>
+        )}
 
         <div className="teacher-modal-actions">
           <button

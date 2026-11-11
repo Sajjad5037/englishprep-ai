@@ -53,6 +53,19 @@ export default function StudentDashboard({
   const [attemptId, setAttemptId] = useState(null);
   const [examQuestions, setExamQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  // Examination timer
+  const [remainingTime, setRemainingTime] = useState(0);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+
+  // Inactivity detection
+  const [showInactivityModal, setShowInactivityModal] = useState(false);
+  const [isInactive, setIsInactive] = useState(false);
+
+  // Timer references
+  const countdownIntervalRef = useRef(null);
+  const inactivityTimeoutRef = useRef(null);
+  const lastActivityRef = useRef(Date.now());
+  const examSubmittedRef = useRef(false);
   
   
 // Build navigation items: standalone questions or grouped questions.
@@ -178,6 +191,113 @@ const selectedDateExams = selectedPublishedDate
   ? examsByPublishedDate[selectedPublishedDate] || []
   : [];
 
+// Countdown timer: runs only while the exam timer is active.
+
+// Countdown timer
+useEffect(() => {
+  if (!activeExam || !isTimerRunning || remainingTime <= 0) {
+    return;
+  }
+
+  countdownIntervalRef.current = setInterval(() => {
+    setRemainingTime((previousTime) => {
+      if (previousTime <= 1) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+        setIsTimerRunning(false);
+        return 0;
+      }
+
+      return previousTime - 1;
+    });
+  }, 1000);
+
+  return () => {
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+  };
+}, [activeExam, isTimerRunning, remainingTime]);
+useEffect(() => {
+  if (
+    !activeExam ||
+    remainingTime !== 0 ||
+    examSubmittedRef.current ||
+    !attemptId
+  ) {
+    return;
+  }
+
+  examSubmittedRef.current = true;
+  setShowInactivityModal(false);
+  setIsInactive(false);
+
+  submitExam(true);
+}, [remainingTime, activeExam, attemptId]);
+// Automatically submit the exam when the countdown reaches zero.
+useEffect(() => {
+  if (
+    !activeExam ||
+    remainingTime !== 0 ||
+    examSubmittedRef.current ||
+    !attemptId
+  ) {
+    return;
+  }
+
+  examSubmittedRef.current = true;
+  setShowInactivityModal(false);
+  setIsInactive(false);
+
+  submitExam(true);
+}, [remainingTime, activeExam]);
+
+
+useEffect(() => {
+  if (!activeExam || !isTimerRunning || showInactivityModal) return;
+
+  const resetInactivityTimeout = () => {
+    lastActivityRef.current = Date.now();
+
+    if (inactivityTimeoutRef.current) {
+      clearTimeout(inactivityTimeoutRef.current);
+    }
+
+    inactivityTimeoutRef.current = setTimeout(() => {
+      setIsTimerRunning(false);
+      setIsInactive(true);
+      setShowInactivityModal(true);
+    }, 2 * 60 * 1000);
+  };
+
+  const activityEvents = [
+    "mousemove",
+    "mousedown",
+    "keydown",
+    "click",
+    "scroll",
+    "touchstart",
+  ];
+
+  activityEvents.forEach((event) => {
+    window.addEventListener(event, resetInactivityTimeout);
+  });
+
+  resetInactivityTimeout();
+
+  return () => {
+    activityEvents.forEach((event) => {
+      window.removeEventListener(event, resetInactivityTimeout);
+    });
+
+    if (inactivityTimeoutRef.current) {
+      clearTimeout(inactivityTimeoutRef.current);
+      inactivityTimeoutRef.current = null;
+    }
+  };
+}, [activeExam, isTimerRunning, showInactivityModal]);
+
   useEffect(() => {
     async function loadExams() {
       setLoading(true);
@@ -269,6 +389,8 @@ async function startExam(exam) {
     );
 
     const examData = await examResponse.json().catch(() => ({}));
+    console.log("EXAM DATA RECEIVED:", examData);
+    console.log("EXAM DETAILS:", examData.exam);
 
     if (!examResponse.ok) {
       throw new Error(
@@ -304,6 +426,16 @@ async function startExam(exam) {
     }
 
     setActiveExam(examData.exam);
+    // Start the exam countdown using the exam duration.
+    const durationInSeconds =
+      Number(examData.exam.duration_minutes || 0) * 60;
+
+    setRemainingTime(durationInSeconds);
+    setIsTimerRunning(durationInSeconds > 0);
+    setShowInactivityModal(false);
+    setIsInactive(false);
+    lastActivityRef.current = Date.now();
+    examSubmittedRef.current = false;
 
     setExamQuestions(
       Array.isArray(examData.items) ? examData.items : []
@@ -313,6 +445,13 @@ async function startExam(exam) {
     setAnswers(restoredAnswers);
     setCurrentQuestionIndex(0);
     setSubmissionResults(null);
+
+    // Start a fixed 2-hour examination timer.
+    setRemainingTime(120 * 60);
+    setIsTimerRunning(true);
+    setIsInactive(false);
+    setShowInactivityModal(false);
+    examSubmittedRef.current = false;
 
   } catch (err) {
     setExamError(err.message || "Unable to start this exam.");
@@ -381,18 +520,20 @@ async function saveStudentAnswer(
   }
 }
 
-  async function submitExam() {
+  async function submitExam(isAutomatic = false) {
   if (!attemptId) {
     setExamError("No active exam attempt was found.");
     return;
   }
 
-  const confirmed = window.confirm(
-    "Are you sure you want to submit this exam? You will not be able to change your answers afterward."
-  );
+  if (!isAutomatic) {
+    const confirmed = window.confirm(
+      "Are you sure you want to submit this exam? You will not be able to change your answers afterward."
+    );
 
-  if (!confirmed) {
-    return;
+    if (!confirmed) {
+      return;
+    }
   }
 
   setSubmittingAttempt(true);
@@ -424,7 +565,26 @@ async function saveStudentAnswer(
     if (!response.ok) {
       throw new Error(data.detail || "Unable to submit the exam.");
     }
+    
     setSubmissionResults(data);
+
+    // Stop all exam timers and inactivity detection.
+    setIsTimerRunning(false);
+    setRemainingTime(0);
+    setShowInactivityModal(false);
+    setIsInactive(false);
+
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+
+    if (inactivityTimeoutRef.current) {
+      clearTimeout(inactivityTimeoutRef.current);
+      inactivityTimeoutRef.current = null;
+    }
+
+    examSubmittedRef.current = false;
 
     window.alert("Your exam has been submitted successfully.");
 
@@ -432,7 +592,12 @@ async function saveStudentAnswer(
     setAttemptId(null);
     setExamQuestions([]);
     setAnswers({});
+
   } catch (err) {
+    if (isAutomatic) {
+      examSubmittedRef.current = false;
+    }
+
     setExamError(err.message || "Unable to submit the exam.");
   } finally {
     setSubmittingAttempt(false);
@@ -895,6 +1060,23 @@ async function saveStudentAnswer(
     <button
       type="button"
       onClick={() => {
+        setIsTimerRunning(false);
+        setRemainingTime(0);
+        setShowInactivityModal(false);
+        setIsInactive(false);
+
+        if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+
+        if (inactivityTimeoutRef.current) {
+          clearTimeout(inactivityTimeoutRef.current);
+          inactivityTimeoutRef.current = null;
+        }
+
+        examSubmittedRef.current = false;
+
         setActiveExam(null);
         setAttemptId(null);
         setExamQuestions([]);
@@ -906,6 +1088,18 @@ async function saveStudentAnswer(
     </button>
 
     <h2>{activeExam.title}</h2>
+
+  
+<div className="exam-timer">
+  <span>Time remaining:</span>
+  <strong>
+    {Math.floor(remainingTime / 3600)}:
+    {String(Math.floor((remainingTime % 3600) / 60)).padStart(2, "0")}:
+    {String(remainingTime % 60).padStart(2, "0")}
+  </strong>
+</div>
+
+
 
     {activeExam.instructions && (
       <p>{activeExam.instructions}</p>
@@ -1410,8 +1604,56 @@ async function saveStudentAnswer(
         {submittingAttempt ? "Submitting exam..." : "Submit exam"}
       </button>
     </div>
+        {showInactivityModal && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0, 0, 0, 0.6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 99999,
+            }}
+          >
+            <div
+              style={{
+                background: "white",
+                padding: "30px",
+                borderRadius: "12px",
+                maxWidth: "420px",
+                width: "90%",
+                boxShadow: "0 10px 35px rgba(0, 0, 0, 0.2)",
+              }}
+            >
+              <h2>Are you still around?</h2>
+
+              <p>
+                Your exam timer has been paused because there has been
+                no mouse or keyboard activity for two minutes.
+              </p>
+
+              <p>Would you like to continue your exam?</p>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowInactivityModal(false);
+                  setIsInactive(false);
+                  lastActivityRef.current = Date.now();
+                  setIsTimerRunning(true);
+                }}
+              >
+                Yes, I am around
+              </button>
+            </div>
+          </div>
+        )}
   </section>
 )}
+
+
+
       
 {!activeExam && !submissionResults && (
   <section

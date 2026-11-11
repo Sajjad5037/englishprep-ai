@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import StudentDashboard from "./StudentDashboard";
 import PlatformOwnerDashboard from "./PlatformOwnerDashboard";
 import { refreshSession } from "./api";
+import PassageScanner from "./PassageScanner";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -215,6 +216,17 @@ function App() {
   }
 }
   const urlParams = new URLSearchParams(window.location.search);
+  const scanToken = urlParams.get("scan_token");
+  const scanSessionId = urlParams.get("session_id");
+
+  if (scanToken && scanSessionId) {
+    return (
+      <PassageScanner
+        token={scanToken}
+        sessionId={scanSessionId}
+      />
+    );
+}
 
     if (urlParams.has("setup_token")) {
       return <AdminSetup />;
