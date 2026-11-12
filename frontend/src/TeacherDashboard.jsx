@@ -965,7 +965,12 @@ const startWebcam = async (purpose = "passage") => {
   }
 };
 useEffect(() => {
-  console.log("WEBCAM PANEL STATE EFFECT IS RUNNING");
+  console.log("WEBCAM PANEL STATE:", {
+    showWebcamScanner,
+    webcamActive,
+    webcamLoading,
+    hasWebcamStream: !!webcamStream,
+  });
 }, [
   showWebcamScanner,
   webcamActive,
