@@ -1116,30 +1116,43 @@ async function createPassage(event) {
   }
 }
   useEffect(() => {
-  if (
-    showWebcamScanner &&
-    webcamActive &&
-    webcamRef.current &&
-    webcamStreamRef.current
-  ) {
-    const video = webcamRef.current;
+  if (!showWebcamScanner || !webcamActive) return;
 
-    video.srcObject = webcamStreamRef.current;
+  const video = webcamRef.current;
+  const stream = webcamStreamRef.current;
 
-    console.log("Video element:", video);
-    console.log("Stream attached:", video.srcObject);
-
-    video.play()
-      .then(() => {
-        console.log("Video playback started successfully.");
-      })
-      .catch((error) => {
-        console.error("Webcam preview error:", error);
-        setScanError("Unable to display the webcam preview.");
-      });
+  if (!video || !stream) {
+    console.error("Video element or webcam stream is missing.");
+    return;
   }
-}, [showWebcamScanner, webcamActive]);
 
+  console.log("Attaching webcam stream to video element.");
+
+  video.srcObject = stream;
+
+  const startPlayback = async () => {
+    try {
+      await video.play();
+
+      console.log("Video playback started:", {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        paused: video.paused,
+        readyState: video.readyState,
+      });
+    } catch (error) {
+      console.error("Video playback failed:", error);
+      setScanError("Unable to start webcam preview.");
+    }
+  };
+
+  startPlayback();
+
+  return () => {
+    video.pause();
+    video.srcObject = null;
+  };
+}, [showWebcamScanner, webcamActive]);
   useEffect(() => {
     loadExams();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3950,10 +3963,13 @@ const examsForSelectedDate = selectedExamDate
             console.error("Video element error:", error);
           }}
           style={{
+            display: "block",
             width: "100%",
             maxWidth: "650px",
+            minHeight: "360px",
             borderRadius: "10px",
             background: "#000",
+            objectFit: "contain",
           }}
         />
 
