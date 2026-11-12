@@ -280,6 +280,8 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [studentResultsError, setStudentResultsError] = useState("");
   // Student results filters
   const [resultsDateFilter, setResultsDateFilter] = useState("");
+  const [webcamLoading, setWebcamLoading] = useState(false);
+
   const [resultsSubjectFilter, setResultsSubjectFilter] = useState("");
   const [resultsClassFilter, setResultsClassFilter] = useState("");
   const [resultsExamFilter, setResultsExamFilter] = useState("");
@@ -900,6 +902,7 @@ const startWebcam = async (purpose = "passage") => {
     setScanError("");
     setScanPurpose(purpose);
     setScanStatus("creating");
+    setWebcamLoading(true);
 
     // Create a backend scanning session.
     const response = await authenticatedFetch(
@@ -946,6 +949,8 @@ const startWebcam = async (purpose = "passage") => {
     setScanError(
       error.message || "Unable to access your webcam."
     );
+  } finally {
+    setWebcamLoading(false);
   }
 };
 
@@ -4081,9 +4086,10 @@ const examsForSelectedDate = selectedExamDate
                     type="button"
                     className="teacher-secondary"
                     onClick={() => startWebcam("question")}
+                    disabled={webcamLoading}
                   >
                     <Camera size={16} />
-                    Use Webcam
+                    {webcamLoading ? "Preparing webcam..." : "Use Webcam"}
                   </button>
 
                   <span>
@@ -4190,9 +4196,10 @@ const examsForSelectedDate = selectedExamDate
                     type="button"
                     className="teacher-secondary"
                     onClick={() => startWebcam("reference_answer")}
+                    disabled={webcamLoading}
                   >
                     <Camera size={16} />
-                    Use Webcam
+                    {webcamLoading ? "Preparing webcam..." : "Use Webcam"}
                   </button>
 
                   <span>
