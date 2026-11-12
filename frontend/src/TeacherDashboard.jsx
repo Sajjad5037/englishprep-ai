@@ -402,6 +402,7 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [showCreateQuestion, setShowCreateQuestion] = useState(false);
   const [editingQuestionId, setEditingQuestionId] = useState(null);
   const [questionPassageId, setQuestionPassageId] = useState("");
+  const [scanDiagnostics, setScanDiagnostics] = useState([]);
   const [questionPrompt, setQuestionPrompt] = useState("");
   const [questionType, setQuestionType] = useState("Short answer");
   const [questionOptions, setQuestionOptions] = useState("");
@@ -990,6 +991,7 @@ useEffect(() => {
       console.log("Passage scanning status:", data);
 
       setScanStatus(data.status);
+      setScanDiagnostics(data.diagnostics || []);
 
       if (data.status === "completed") {
         if (scanPurpose === "question") {
@@ -3712,6 +3714,16 @@ const examsForSelectedDate = selectedExamDate
             <p>
               Waiting for your phone to upload the passage...
             </p>
+            <div className="passage-scan-diagnostics">
+              <h4>Phone diagnostic logs</h4>
+
+              <textarea
+                value={JSON.stringify(scanDiagnostics, null, 2)}
+                readOnly
+                rows={10}
+                placeholder="Waiting for diagnostic logs from your phone..."
+              />
+            </div>
           </div>
         )}
         

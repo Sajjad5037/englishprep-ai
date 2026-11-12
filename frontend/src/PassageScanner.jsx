@@ -46,6 +46,27 @@ function PassageScanner({ token, sessionId }) {
     };
   }, []);
 
+  const sendDiagnostic = async (event, details = {}) => {
+    try {
+      await fetch(
+        `${API_BASE_URL}/api/passage-scanner/diagnostics?session_id=${encodeURIComponent(sessionId)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Scan-Token": token,
+          },
+          body: JSON.stringify({
+            event,
+            details,
+          }),
+        }
+      );
+    } catch (err) {
+      console.error("Diagnostic reporting failed:", err);
+    }
+  };
+
   const startCamera = async () => {
     console.log("START CAMERA FUNCTION EXECUTED");
     try {
@@ -66,14 +87,22 @@ function PassageScanner({ token, sessionId }) {
         audio: false,
       });
 
+
       streamRef.current = stream;
+
       const videoTrack = stream.getVideoTracks()[0];
       const settings = videoTrack.getSettings();
 
-      console.log("Actual camera resolution:", {
+      const cameraDetails = {
         width: settings.width,
         height: settings.height,
-      });
+        facingMode: settings.facingMode,
+        deviceId: settings.deviceId,
+      };
+
+      console.log("Actual camera resolution:", cameraDetails);
+
+      await sendDiagnostic("camera_started", cameraDetails);
       setCameraActive(true);
       setStatus("camera ready");
     } catch (err) {
@@ -227,6 +256,18 @@ const confirmCrop = async () => {
           setError("Unable to capture this page. Please try again.");
           return;
         }
+        const captureDetails = {
+          width: canvas.width,
+          height: canvas.height,
+          fileSizeBytes: blob.size,
+          fileSizeKB: Math.round(blob.size / 1024),
+          mimeType: blob.type,
+          compressionQuality: 0.9,
+        };
+
+        console.log("Captured image details:", captureDetails);
+
+        sendDiagnostic("page_captured", captureDetails);
 
         const pageNumber = selectedImages.length + 1;
 
