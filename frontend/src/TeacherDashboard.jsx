@@ -3928,6 +3928,18 @@ const examsForSelectedDate = selectedExamDate
           autoPlay
           playsInline
           muted
+          onLoadedMetadata={() => {
+            console.log("Video metadata loaded:", {
+              width: webcamRef.current.videoWidth,
+              height: webcamRef.current.videoHeight,
+            });
+          }}
+          onPlaying={() => {
+            console.log("Webcam video is now playing.");
+          }}
+          onError={(error) => {
+            console.error("Video element error:", error);
+          }}
           style={{
             width: "100%",
             maxWidth: "650px",
