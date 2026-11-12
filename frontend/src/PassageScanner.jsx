@@ -59,11 +59,20 @@ function PassageScanner({ token, sessionId }) {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
         },
         audio: false,
       });
 
       streamRef.current = stream;
+      const videoTrack = stream.getVideoTracks()[0];
+      const settings = videoTrack.getSettings();
+
+      console.log("Actual camera resolution:", {
+        width: settings.width,
+        height: settings.height,
+      });
       setCameraActive(true);
       setStatus("camera ready");
     } catch (err) {

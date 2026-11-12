@@ -930,15 +930,7 @@ async function saveStudentAnswer(
                             </h4>
 
                             <p>
-                              Marks: {criterion.marks_awarded}
-                              {" / "}
-                              {criterion.max_marks}
-                            </p>
-
-                            <p>
-                              {criterion.met
-                                ? "Criterion achieved"
-                                : "Criterion not achieved"}
+                              {criterion.met ? "Point identified" : "Point not identified"}
                             </p>
 
                             {criterion.evidence && (
