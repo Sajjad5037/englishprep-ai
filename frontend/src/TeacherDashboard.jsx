@@ -3915,15 +3915,25 @@ const examsForSelectedDate = selectedExamDate
       </p>
         <video
           ref={(video) => {
+            console.log("VIDEO ELEMENT MOUNTED:", !!video);
             webcamRef.current = video;
 
             if (video && webcamStream) {
+              console.log("STREAM AVAILABLE FOR VIDEO:", webcamStream);
+
               video.srcObject = webcamStream;
 
-              video.play().catch((error) => {
-                console.error("Webcam playback error:", error);
-                setScanError("Unable to start webcam preview.");
-              });
+              video.play()
+                .then(() => {
+                  console.log("VIDEO PLAYING:", {
+                    width: video.videoWidth,
+                    height: video.videoHeight,
+                    paused: video.paused,
+                  });
+                })
+                .catch((error) => {
+                  console.error("VIDEO PLAYBACK ERROR:", error);
+                });
             }
           }}
           autoPlay
