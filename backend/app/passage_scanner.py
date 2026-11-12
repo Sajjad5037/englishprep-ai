@@ -5,6 +5,8 @@ import time
 import hashlib
 import base64
 import mimetypes
+import json
+import tempfile
 
 from dataclasses import dataclass, field
 from threading import Lock
