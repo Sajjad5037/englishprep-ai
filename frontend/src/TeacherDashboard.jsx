@@ -416,6 +416,7 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [showWebcamScanner, setShowWebcamScanner] = useState(false);
   const [webcamActive, setWebcamActive] = useState(false);
   const [webcamImages, setWebcamImages] = useState([]);
+  const [webcamStream, setWebcamStream] = useState(null);
   const webcamRef = useRef(null);
   const webcamStreamRef = useRef(null);
   const [scanPurpose, setScanPurpose] = useState("passage");
@@ -949,9 +950,10 @@ const startWebcam = async (purpose = "passage") => {
       }))
     );
 
-    webcamStreamRef.current = stream;
-    setShowWebcamScanner(true);
-    setWebcamActive(true);
+   webcamStreamRef.current = stream;
+  setWebcamStream(stream);
+  setShowWebcamScanner(true);
+  setWebcamActive(true);
   } catch (error) {
     console.error("Webcam error:", error);
     setScanError(
@@ -1116,43 +1118,38 @@ async function createPassage(event) {
   }
 }
   useEffect(() => {
-  if (!showWebcamScanner || !webcamActive) return;
-
-  const video = webcamRef.current;
-  const stream = webcamStreamRef.current;
-
-  if (!video || !stream) {
-    console.error("Video element or webcam stream is missing.");
+  if (!showWebcamScanner || !webcamActive || !webcamStream) {
     return;
   }
 
-  console.log("Attaching webcam stream to video element.");
+  const video = webcamRef.current;
 
-  video.srcObject = stream;
+  if (!video) {
+    console.error("Webcam video element is not available.");
+    return;
+  }
 
-  const startPlayback = async () => {
-    try {
-      await video.play();
+  console.log("Attaching webcam stream:", webcamStream);
 
-      console.log("Video playback started:", {
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-        paused: video.paused,
-        readyState: video.readyState,
+  video.srcObject = webcamStream;
+
+  video.play()
+    .then(() => {
+      console.log("Webcam preview started:", {
+        width: video.videoWidth,
+        height: video.videoHeight,
       });
-    } catch (error) {
-      console.error("Video playback failed:", error);
+    })
+    .catch((error) => {
+      console.error("Webcam playback error:", error);
       setScanError("Unable to start webcam preview.");
-    }
-  };
-
-  startPlayback();
+    });
 
   return () => {
     video.pause();
     video.srcObject = null;
   };
-}, [showWebcamScanner, webcamActive]);
+}, [showWebcamScanner, webcamActive, webcamStream]);
   useEffect(() => {
     loadExams();
     // eslint-disable-next-line react-hooks/exhaustive-deps
