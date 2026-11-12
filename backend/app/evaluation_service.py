@@ -117,15 +117,7 @@ def evaluate_submitted_answer(
             "marks": marks,
         })
 
-    rubric_total = sum(
-        item["marks"] for item in validated_criteria
-    )
-
-    if rubric_total != max_marks:
-        raise ValueError(
-            f"Rubric total is {rubric_total}, "
-            f"but question maximum is {max_marks}."
-        )
+    
         # Unanswered questions receive zero without an OpenAI call.
     if not answer_text.strip():
         empty_results = [
@@ -204,7 +196,14 @@ IMPORTANT RULES:
 12. Return exactly one result for each criterion.
 13. Use zero-based criterion indexes.
 14. Do not calculate or invent the final score.
-
+15. Assess every marking criterion independently, even when the
+    number of criteria exceeds the question's maximum marks.
+16. A student may receive full marks by satisfying any combination
+    of distinct acceptable criteria up to the maximum marks available.
+17. Do not penalise a student for omitting other acceptable points
+    once they have demonstrated enough distinct points to earn full marks.
+18. Do not count repeated statements or different wording of the
+    same idea as separate acceptable points.
 Return the result using the requested JSON schema.
 """,
         input=json.dumps(payload, ensure_ascii=False),
@@ -278,10 +277,11 @@ Return the result using the requested JSON schema.
             "feedback": item["feedback"],
         })
 
-    awarded_marks = sum(
-        item["marks_awarded"]
-        for item in enriched_results
+    total_valid_points = sum(
+        1 for item in enriched_results if item["met"]
     )
+
+    awarded_marks = min(total_valid_points, max_marks)
 
     return {
         "marks_awarded": awarded_marks,

@@ -57,6 +57,7 @@ class ScanSession:
     status: str = "waiting"
     extracted_text: Optional[str] = None
     error: Optional[str] = None
+    diagnostics: list[dict] = field(default_factory=list)
     lock: Lock = field(default_factory=Lock)
 
 
@@ -160,6 +161,11 @@ def get_scan_session_status(
     if session.status == "failed":
         response["error"] = session.error
 
+    with session.lock:
+        response["diagnostics"] = list(session.diagnostics)
+
+
+    
     return response
 
 
@@ -228,7 +234,66 @@ def extract_passage_text(images: list[tuple[str, bytes]]) -> str:
         )
 
     return extracted_text
+@router.post("/diagnostics")
+async def report_scan_diagnostics(
+    session_id: str,
+    payload: dict,
+    x_scan_token: str | None = Header(default=None),
+):
+    if not x_scan_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Scanning token is required.",
+        )
 
+    session = get_session(session_id)
+
+    if not secrets.compare_digest(
+        session.token_hash,
+        hash_token(x_scan_token),
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid scanning token.",
+        )
+
+    diagnostic = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": str(payload.get("event", "unknown")),
+        "details": payload.get("details", {}),
+    }
+
+    with session.lock:
+        session.diagnostics.append(diagnostic)
+
+    return {
+        "message": "Diagnostic recorded successfully.",
+        "status": "success",
+    }
+
+@router.get("/diagnostics")
+async def get_scan_diagnostics(
+    session_id: str,
+    token: str,
+):
+    session = get_session(session_id)
+
+    if not secrets.compare_digest(
+        session.token_hash,
+        hash_token(token),
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid scanning token.",
+        )
+
+    with session.lock:
+        diagnostics = list(session.diagnostics)
+
+    return {
+        "session_id": session_id,
+        "diagnostics": diagnostics,
+    }
 
 @router.post("/upload")
 async def upload_passage_images(
