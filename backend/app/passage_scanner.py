@@ -15,7 +15,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from google.cloud import vision
 from google.oauth2 import service_account
-
+from datetime import datetime, timezone
 from fastapi import Header
 
 from fastapi import (
