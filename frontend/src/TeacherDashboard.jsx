@@ -10,6 +10,7 @@ import {
   Search,
   LogOut,
   X,
+  Camera,
 } from "lucide-react";
 
 import AiExamGenerator from "./AiExamGenerator";
