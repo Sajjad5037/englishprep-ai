@@ -7,12 +7,14 @@ import base64
 import mimetypes
 import json
 import tempfile
-
+from google.oauth2 import service_account
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from google.cloud import vision
+from google.oauth2 import service_account
 
 from fastapi import Header
 
@@ -165,57 +167,65 @@ def get_scan_session_status(
 
 
 OCR_MODEL_ID = os.getenv("OPENAI_OCR_MODEL", "gpt-4o")
+def get_vision_client():
+    encoded_credentials = os.getenv(
+        "GOOGLE_CLOUD_CREDENTIALS_BASE64"
+    )
+
+    if not encoded_credentials:
+        raise RuntimeError(
+            "Google Cloud credentials are not configured."
+        )
+
+    credentials_json = base64.b64decode(
+        encoded_credentials
+    ).decode("utf-8")
+
+    credentials_info = json.loads(credentials_json)
+
+    credentials = service_account.Credentials.from_service_account_info(
+        credentials_info,
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+
+    return vision.ImageAnnotatorClient(
+        credentials=credentials
+    )
 
 
 def extract_passage_text(images: list[tuple[str, bytes]]) -> str:
-    """Extract printed passage text from uploaded page images."""
+    """Extract printed and handwritten text using Google Cloud Vision."""
 
-    client = OpenAI()
+    client = get_vision_client()
+    extracted_pages = []
 
-    content = [
-        {
-            "type": "input_text",
-            "text": (
-                "Extract all printed passage text from these images. "
-                "The images are supplied in page order. "
-                "Preserve the original wording, spelling, punctuation, "
-                "paragraphs and page order as accurately as possible. "
-                "Do not summarize, rewrite, correct or add commentary. "
-                "Ignore page numbers, headers and footers where they are "
-                "clearly unrelated to the passage. "
-                "Separate pages using a clear page break."
-            ),
-        }
-    ]
+    for page_number, (mime_type, image_bytes) in enumerate(images, start=1):
+        image = vision.Image(content=image_bytes)
 
-    for mime_type, image_bytes in images:
-        encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+        response = client.document_text_detection(image=image)
 
-        content.append({
-            "type": "input_image",
-            "image_url": (
-                f"data:{mime_type};base64,{encoded_image}"
-            ),
-        })
+        if response.error.message:
+            raise RuntimeError(
+                f"Google Vision OCR failed on page {page_number}: "
+                f"{response.error.message}"
+            )
 
-    response = client.responses.create(
-        model=OCR_MODEL_ID,
-        input=[
-            {
-                "role": "user",
-                "content": content,
-            }
-        ],
-        max_output_tokens=12000,
-    )
-    print("OCR MODEL:", OCR_MODEL_ID)
-    print("OCR RESPONSE STATUS:", response.status)
-    print("OCR OUTPUT:", repr(response.output_text))
+        page_text = ""
 
-    extracted_text = (response.output_text or "").strip()
+        if response.full_text_annotation:
+            page_text = response.full_text_annotation.text.strip()
+
+        if page_text:
+            extracted_pages.append(
+                f"--- Page {page_number} ---\n{page_text}"
+            )
+
+    extracted_text = "\n\n".join(extracted_pages).strip()
 
     if not extracted_text:
-        raise ValueError("No text could be extracted from the images.")
+        raise ValueError(
+            "No readable text could be extracted from the uploaded images."
+        )
 
     return extracted_text
 
