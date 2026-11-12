@@ -206,6 +206,9 @@ def extract_passage_text(images: list[tuple[str, bytes]]) -> str:
         ],
         max_output_tokens=12000,
     )
+    print("OCR MODEL:", OCR_MODEL_ID)
+    print("OCR RESPONSE STATUS:", response.status)
+    print("OCR OUTPUT:", repr(response.output_text))
 
     extracted_text = (response.output_text or "").strip()
 
