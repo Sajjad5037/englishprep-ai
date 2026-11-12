@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import Cropper from "react-easy-crop";
+import ReactCrop from "react-image-crop";
+import "react-image-crop/dist/ReactCrop.css";
 
 import { API_BASE_URL } from "./api";
 
@@ -13,8 +14,14 @@ function PassageScanner({ token, sessionId }) {
   const streamRef = useRef(null);
   const previewUrlsRef = useRef([]);
   const [editingIndex, setEditingIndex] = useState(null);
-  const [crop, setCrop] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
+  const [crop, setCrop] = useState({
+    unit: "%",
+    x: 10,
+    y: 10,
+    width: 80,
+    height: 80,
+  });
+  
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
 
   // Attach the camera stream when the video element is rendered.
@@ -66,52 +73,66 @@ function PassageScanner({ token, sessionId }) {
       );
     }
   };
-  const getCroppedImage = async (imageSrc, pixelCrop) => {
-  const image = new Image();
-  image.src = imageSrc;
-
-  await new Promise((resolve, reject) => {
-    image.onload = resolve;
-    image.onerror = reject;
-  });
-
-  const canvas = document.createElement("canvas");
-
-  canvas.width = pixelCrop.width;
-  canvas.height = pixelCrop.height;
-
-  const context = canvas.getContext("2d");
-
-  context.drawImage(
-    image,
-    pixelCrop.x,
-    pixelCrop.y,
-    pixelCrop.width,
-    pixelCrop.height,
-    0,
-    0,
-    pixelCrop.width,
-    pixelCrop.height
-  );
-
+  const getCroppedImage = (imageSrc, percentCrop) => {
   return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error("Unable to create cropped image."));
-          return;
-        }
+    const image = new Image();
 
-        resolve(blob);
-      },
-      "image/jpeg",
-      0.95
-    );
+    image.onload = () => {
+      const x = (percentCrop.x / 100) * image.naturalWidth;
+      const y = (percentCrop.y / 100) * image.naturalHeight;
+      const width = (percentCrop.width / 100) * image.naturalWidth;
+      const height = (percentCrop.height / 100) * image.naturalHeight;
+
+      const canvas = document.createElement("canvas");
+
+      canvas.width = Math.round(width);
+      canvas.height = Math.round(height);
+
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        reject(new Error("Unable to create crop canvas."));
+        return;
+      }
+
+      context.drawImage(
+        image,
+        x, y, width, height,
+        0, 0, canvas.width, canvas.height
+      );
+
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error("Unable to generate cropped image."));
+            return;
+          }
+
+          resolve(blob);
+        },
+        "image/jpeg",
+        0.95
+      );
+    };
+
+    image.onerror = () => {
+      reject(new Error("Unable to load image for cropping."));
+    };
+
+    image.src = imageSrc;
   });
 };
+
+
+
 const confirmCrop = async () => {
-  if (editingIndex === null || !croppedAreaPixels) {
-    setError("Please select a crop area first.");
+  if (
+    editingIndex === null ||
+    !croppedAreaPixels ||
+    croppedAreaPixels.width <= 0 ||
+    croppedAreaPixels.height <= 0
+  ) {
+    setError("Please select a valid crop area first.");
     return;
   }
 
@@ -150,8 +171,14 @@ const confirmCrop = async () => {
 
     setEditingIndex(null);
     setCroppedAreaPixels(null);
-    setCrop({ x: 0, y: 0 });
-    setZoom(1);
+    setCrop({
+      unit: "%",
+      x: 10,
+      y: 10,
+      width: 80,
+      height: 80,
+    });
+    
 
   } catch (err) {
     console.error("Cropping error:", err);
@@ -338,36 +365,27 @@ const confirmCrop = async () => {
                   overflow: "hidden",
                 }}
               >
-                <Cropper
-                  image={selectedImages[editingIndex]?.previewUrl}
+                <ReactCrop
                   crop={crop}
-                  zoom={zoom}
-                  minZoom={1}
-                  maxZoom={5}
-                  zoomSpeed={0.5}
-                  onCropChange={setCrop}
-                  onZoomChange={setZoom}
-                  onCropComplete={(_, croppedPixels) =>
-                    setCroppedAreaPixels(croppedPixels)
+                  onChange={(_, percentCrop) => setCrop(percentCrop)}
+                  onComplete={(_, percentCrop) =>
+                    setCroppedAreaPixels(percentCrop)
                   }
-                  restrictPosition={false}
-                  objectFit="contain"
-                />
+                  keepSelection
+                >
+                  <img
+                    src={selectedImages[editingIndex]?.previewUrl}
+                    alt="Passage page to crop"
+                    style={{
+                      maxWidth: "100%",
+                      maxHeight: "450px",
+                      display: "block",
+                    }}
+                  />
+                </ReactCrop>
               </div>
 
-              <div style={{ marginTop: "15px" }}>
-                <label>Zoom</label>
-
-                <input
-                  type="range"
-                  min={1}
-                  max={4}
-                  step={0.1}
-                  value={zoom}
-                  onChange={(event) => setZoom(Number(event.target.value))}
-                  style={{ width: "100%" }}
-                />
-              </div>
+              
 
               <button type="button" onClick={confirmCrop}>
                 Confirm Crop
@@ -378,8 +396,14 @@ const confirmCrop = async () => {
                 onClick={() => {
                   setEditingIndex(null);
                   setCroppedAreaPixels(null);
-                  setCrop({ x: 0, y: 0 });
-                  setZoom(1);
+                  setCrop({
+                    unit: "%",
+                    x: 10,
+                    y: 10,
+                    width: 80,
+                    height: 80,
+                  });
+                  
                 }}
               >
                 Cancel
@@ -405,8 +429,14 @@ const confirmCrop = async () => {
                 type="button"
                 onClick={() => {
                   setEditingIndex(index);
-                  setCrop({ x: 0, y: 0 });
-                  setZoom(1);
+                  setCrop({
+                    unit: "%",
+                    x: 10,
+                    y: 10,
+                    width: 80,
+                    height: 80,
+                  });
+                  
                   setCroppedAreaPixels(null);
                 }}
               >
