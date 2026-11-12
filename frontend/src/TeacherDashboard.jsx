@@ -272,6 +272,8 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [selectedExamSubject, setSelectedExamSubject] = useState(null);
   const [selectedExamDate, setSelectedExamDate] = useState(null);
   const [exams, setExams] = useState([]);
+  const [webcamSessionId, setWebcamSessionId] = useState(null);
+  const [webcamScanToken, setWebcamScanToken] = useState(null);
   const [studentResults, setStudentResults] = useState([]);
   const [loadingStudentResults, setLoadingStudentResults] = useState(false);
   const [studentResultsError, setStudentResultsError] = useState("");
@@ -408,6 +410,11 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [passageCategory, setPassageCategory] = useState("Reading comprehension");
   const [passageContent, setPassageContent] = useState("");
   const [showPassageScanner, setShowPassageScanner] = useState(false);
+  const [showWebcamScanner, setShowWebcamScanner] = useState(false);
+  const [webcamActive, setWebcamActive] = useState(false);
+  const [webcamImages, setWebcamImages] = useState([]);
+  const webcamRef = useRef(null);
+  const webcamStreamRef = useRef(null);
   const [scanPurpose, setScanPurpose] = useState("passage");
   const [scanSessionId, setScanSessionId] = useState(null);
   const [scanQrCode, setScanQrCode] = useState("");
@@ -887,7 +894,170 @@ const startPassageScanning = async (purpose = "passage") => {
     setScanStatus("error");
   }
 };
+const startWebcam = async (purpose = "passage") => {
+  try {
+    setScanError("");
+    setScanPurpose(purpose);
+    setScanStatus("creating");
 
+    // Create a backend scanning session.
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/passage-scanner/sessions`,
+      {
+        method: "POST",
+      },
+      accessToken
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+
+      throw new Error(
+        errorData.detail || "Unable to create webcam scanning session."
+      );
+    }
+
+    const session = await response.json();
+
+    setWebcamSessionId(session.session_id);
+    setWebcamScanToken(session.token);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error(
+        "Camera access is not supported. Please use HTTPS."
+      );
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "environment",
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+      audio: false,
+    });
+
+    webcamStreamRef.current = stream;
+    setShowWebcamScanner(true);
+    setWebcamActive(true);
+  } catch (error) {
+    console.error("Webcam error:", error);
+    setScanError(
+      error.message || "Unable to access your webcam."
+    );
+  }
+};
+
+const stopWebcam = () => {
+  if (webcamStreamRef.current) {
+    webcamStreamRef.current
+      .getTracks()
+      .forEach((track) => track.stop());
+
+    webcamStreamRef.current = null;
+  }
+
+  setWebcamActive(false);
+};
+
+const captureWebcamPage = () => {
+  const video = webcamRef.current;
+
+  if (!video || !video.videoWidth || !video.videoHeight) {
+    setScanError("Webcam is not ready. Please try again.");
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  const context = canvas.getContext("2d");
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  canvas.toBlob((blob) => {
+    if (!blob) {
+      setScanError("Unable to capture the image.");
+      return;
+    }
+
+    const file = new File(
+      [blob],
+      `webcam-page-${Date.now()}.jpg`,
+      { type: "image/jpeg" }
+    );
+
+    const previewUrl = URL.createObjectURL(file);
+
+    setWebcamImages((previous) => [
+      ...previous,
+      { file, previewUrl },
+    ]);
+
+    setScanError("");
+  }, "image/jpeg", 0.95);
+};
+const uploadWebcamImages = async () => {
+  if (webcamImages.length === 0) {
+    setScanError("Please capture at least one page.");
+    return;
+  }
+
+  if (!webcamSessionId || !webcamScanToken) {
+    setScanError("Webcam scanning session is missing.");
+    return;
+  }
+
+  try {
+    setScanError("");
+    setScanStatus("uploading");
+
+    const formData = new FormData();
+
+    webcamImages.forEach((image) => {
+      formData.append("files", image.file);
+    });
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/passage-scanner/upload?session_id=${encodeURIComponent(webcamSessionId)}`,
+      {
+        method: "POST",
+        headers: {
+          "X-Scan-Token": webcamScanToken,
+        },
+        body: formData,
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to upload webcam images."
+      );
+    }
+
+    setScanSessionId(webcamSessionId);
+    setScanStatus("waiting");
+
+    stopWebcam();
+    setShowWebcamScanner(false);
+
+    setWebcamImages((previous) => {
+      previous.forEach((image) =>
+        URL.revokeObjectURL(image.previewUrl)
+      );
+      return [];
+    });
+
+  } catch (error) {
+    console.error("Webcam upload error:", error);
+    setScanError(
+      error.message || "Unable to upload webcam images."
+    );
+    setScanStatus("error");
+  }
+};
 async function createPassage(event) {
   event.preventDefault();
   setPassageError("");
@@ -931,6 +1101,21 @@ async function createPassage(event) {
     setSavingPassage(false);
   }
 }
+  useEffect(() => {
+  if (
+    showWebcamScanner &&
+    webcamActive &&
+    webcamRef.current &&
+    webcamStreamRef.current
+  ) {
+    webcamRef.current.srcObject = webcamStreamRef.current;
+
+    webcamRef.current.play().catch((error) => {
+      console.error("Webcam preview error:", error);
+      setScanError("Unable to display the webcam preview.");
+    });
+  }
+}, [showWebcamScanner, webcamActive]);
 
   useEffect(() => {
     loadExams();
@@ -3705,6 +3890,103 @@ const examsForSelectedDate = selectedExamDate
             </p>
           </div>
         )}
+        {showWebcamScanner && (
+  <div className="passage-scan-panel">
+    <div className="passage-scan-panel-header">
+      <h3>Scan using your webcam</h3>
+
+      <button
+        type="button"
+        onClick={() => {
+          stopWebcam();
+          setShowWebcamScanner(false);
+        }}
+        aria-label="Close webcam scanner"
+      >
+        <X size={18} />
+      </button>
+    </div>
+
+    {webcamActive && (
+      <>
+        <video
+          ref={webcamRef}
+          autoPlay
+          playsInline
+          muted
+          style={{
+            width: "100%",
+            maxWidth: "650px",
+            borderRadius: "10px",
+            background: "#000",
+          }}
+        />
+
+        <div className="passage-scan-actions">
+          <button
+            type="button"
+            className="teacher-primary"
+            onClick={captureWebcamPage}
+          >
+            Capture Page
+          </button>
+
+          <button
+            type="button"
+            className="teacher-secondary"
+            onClick={stopWebcam}
+          >
+            Stop Camera
+          </button>
+        </div>
+      </>
+    )}
+
+    {webcamImages.length > 0 && (
+      <div>
+        <h4>Captured pages: {webcamImages.length}</h4>
+
+        {webcamImages.map((image, index) => (
+          <div key={image.previewUrl}>
+            <p>Page {index + 1}</p>
+
+            <img
+              src={image.previewUrl}
+              alt={`Captured page ${index + 1}`}
+              style={{
+                width: "100%",
+                maxWidth: "300px",
+                borderRadius: "8px",
+              }}
+            />
+
+            <button
+              type="button"
+              onClick={() => {
+                URL.revokeObjectURL(image.previewUrl);
+                setWebcamImages((previous) =>
+                  previous.filter((_, i) => i !== index)
+                );
+              }}
+            >
+              Remove Page
+            </button>
+          </div>
+        ))}
+      <button
+        type="button"
+        className="teacher-primary"
+        onClick={uploadWebcamImages}
+        disabled={scanStatus === "uploading"}
+      >
+        {scanStatus === "uploading"
+          ? "Uploading Pages..."
+          : "Upload All Pages"}
+      </button>
+      </div>
+    )}
+  </div>
+)}
 
         {scanError && (
           <p className="passage-scan-error">{scanError}</p>
@@ -3792,6 +4074,15 @@ const examsForSelectedDate = selectedExamDate
                     {scanStatus === "creating"
                       ? "Preparing scanner..."
                       : "Scan question with phone"}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="teacher-secondary"
+                    onClick={() => startWebcam("question")}
+                  >
+                    <Camera size={16} />
+                    Use Webcam
                   </button>
 
                   <span>
@@ -3893,6 +4184,14 @@ const examsForSelectedDate = selectedExamDate
                     {scanStatus === "creating"
                       ? "Preparing scanner..."
                       : "Scan reference answer with phone"}
+                  </button>
+                  <button
+                    type="button"
+                    className="teacher-secondary"
+                    onClick={() => startWebcam("reference_answer")}
+                  >
+                    <Camera size={16} />
+                    Use Webcam
                   </button>
 
                   <span>
