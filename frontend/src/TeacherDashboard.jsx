@@ -934,6 +934,7 @@ const startWebcam = async (purpose = "passage") => {
     }
 
     console.log("Requesting webcam access...");
+    console.log("WEBCAM TEST VERSION 2");
 
     const stream = await navigator.mediaDevices.getUserMedia({
       video: true,
