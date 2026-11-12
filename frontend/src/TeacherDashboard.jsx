@@ -964,7 +964,19 @@ const startWebcam = async (purpose = "passage") => {
     setWebcamLoading(false);
   }
 };
-
+useEffect(() => {
+  console.log("WEBCAM PANEL STATE:", {
+    showWebcamScanner,
+    webcamActive,
+    webcamLoading,
+    hasWebcamStream: !!webcamStream,
+  });
+}, [
+  showWebcamScanner,
+  webcamActive,
+  webcamLoading,
+  webcamStream,
+]);
 const stopWebcam = () => {
   if (webcamStreamRef.current) {
     webcamStreamRef.current
