@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from google.cloud import vision
 from google.oauth2 import service_account
 from datetime import datetime, timezone
+from fastapi.responses import FileResponse
 from fastapi import Header
 
 from fastapi import (
@@ -234,6 +235,53 @@ def extract_passage_text(images: list[tuple[str, bytes]]) -> str:
         )
 
     return extracted_text
+
+
+@router.get("/diagnostics/image/{session_id}/{page_number}")
+def download_diagnostic_image(
+    session_id: str,
+    page_number: int,
+    user: User = Depends(require_institution_user),
+):
+    session = get_session(session_id)
+
+    # Verify session ownership.
+    if (
+        session.user_id != user.id
+        or session.institution_id != user.institution_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this scanning session.",
+        )
+
+    if page_number < 1 or page_number > MAX_IMAGES_PER_SCAN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid page number.",
+        )
+
+    diagnostic_dir = os.path.join(
+        tempfile.gettempdir(),
+        "passage_scan_diagnostics",
+    )
+
+    image_path = os.path.join(
+        diagnostic_dir,
+        f"{session_id}_page_{page_number}.jpg",
+    )
+
+    if not os.path.isfile(image_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Diagnostic image not found.",
+        )
+
+    return FileResponse(
+        path=image_path,
+        media_type="image/jpeg",
+        filename=f"passage-page-{page_number}.jpg",
+    )
 
 @router.post("/diagnostics")
 async def report_scan_diagnostics(
