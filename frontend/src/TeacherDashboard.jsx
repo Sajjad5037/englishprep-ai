@@ -1122,12 +1122,21 @@ async function createPassage(event) {
     webcamRef.current &&
     webcamStreamRef.current
   ) {
-    webcamRef.current.srcObject = webcamStreamRef.current;
+    const video = webcamRef.current;
 
-    webcamRef.current.play().catch((error) => {
-      console.error("Webcam preview error:", error);
-      setScanError("Unable to display the webcam preview.");
-    });
+    video.srcObject = webcamStreamRef.current;
+
+    console.log("Video element:", video);
+    console.log("Stream attached:", video.srcObject);
+
+    video.play()
+      .then(() => {
+        console.log("Video playback started successfully.");
+      })
+      .catch((error) => {
+        console.error("Webcam preview error:", error);
+        setScanError("Unable to display the webcam preview.");
+      });
   }
 }, [showWebcamScanner, webcamActive]);
 
