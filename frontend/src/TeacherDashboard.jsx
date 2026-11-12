@@ -932,14 +932,22 @@ const startWebcam = async (purpose = "passage") => {
       );
     }
 
+    console.log("Requesting webcam access...");
+
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "environment",
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-      },
+      video: true,
       audio: false,
     });
+
+    console.log("Webcam stream started:", stream);
+    console.log(
+      "Active video tracks:",
+      stream.getVideoTracks().map((track) => ({
+        label: track.label,
+        readyState: track.readyState,
+        settings: track.getSettings(),
+      }))
+    );
 
     webcamStreamRef.current = stream;
     setShowWebcamScanner(true);
