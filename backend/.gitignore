@@ -1,0 +1,5 @@
+# Google Cloud service account credentials
+*service-account*.json
+*ibne-sina-app-*.json
+.env
+.env.*
