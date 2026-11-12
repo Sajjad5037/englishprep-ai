@@ -3945,6 +3945,9 @@ const examsForSelectedDate = selectedExamDate
 
     {webcamActive && (
       <>
+        <p style={{ color: "red" }}>
+        DEBUG: Webcam video element should appear below
+      </p>
         <video
           ref={webcamRef}
           autoPlay
