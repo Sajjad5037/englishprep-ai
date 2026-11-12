@@ -1,5 +1,6 @@
-
 import { useEffect, useRef, useState } from "react";
+import Cropper from "react-easy-crop";
+
 import { API_BASE_URL } from "./api";
 
 function PassageScanner({ token, sessionId }) {
@@ -11,6 +12,10 @@ function PassageScanner({ token, sessionId }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const previewUrlsRef = useRef([]);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
 
   // Attach the camera stream when the video element is rendered.
   useEffect(() => {
@@ -61,6 +66,98 @@ function PassageScanner({ token, sessionId }) {
       );
     }
   };
+  const getCroppedImage = async (imageSrc, pixelCrop) => {
+  const image = new Image();
+  image.src = imageSrc;
+
+  await new Promise((resolve, reject) => {
+    image.onload = resolve;
+    image.onerror = reject;
+  });
+
+  const canvas = document.createElement("canvas");
+
+  canvas.width = pixelCrop.width;
+  canvas.height = pixelCrop.height;
+
+  const context = canvas.getContext("2d");
+
+  context.drawImage(
+    image,
+    pixelCrop.x,
+    pixelCrop.y,
+    pixelCrop.width,
+    pixelCrop.height,
+    0,
+    0,
+    pixelCrop.width,
+    pixelCrop.height
+  );
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Unable to create cropped image."));
+          return;
+        }
+
+        resolve(blob);
+      },
+      "image/jpeg",
+      0.95
+    );
+  });
+};
+const confirmCrop = async () => {
+  if (editingIndex === null || !croppedAreaPixels) {
+    setError("Please select a crop area first.");
+    return;
+  }
+
+  try {
+    setError("");
+
+    const selectedImage = selectedImages[editingIndex];
+
+    const croppedBlob = await getCroppedImage(
+      selectedImage.previewUrl,
+      croppedAreaPixels
+    );
+
+    const croppedFile = new File(
+      [croppedBlob],
+      `passage-page-${editingIndex + 1}-cropped.jpg`,
+      { type: "image/jpeg" }
+    );
+
+    const croppedPreviewUrl = URL.createObjectURL(croppedFile);
+
+    previewUrlsRef.current.push(croppedPreviewUrl);
+
+    setSelectedImages((previousImages) =>
+      previousImages.map((image, index) =>
+        index === editingIndex
+          ? {
+              ...image,
+              file: croppedFile,
+              previewUrl: croppedPreviewUrl,
+              isCropped: true,
+            }
+          : image
+      )
+    );
+
+    setEditingIndex(null);
+    setCroppedAreaPixels(null);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+
+  } catch (err) {
+    console.error("Cropping error:", err);
+    setError("Unable to crop this page. Please try again.");
+  }
+};
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -226,6 +323,64 @@ function PassageScanner({ token, sessionId }) {
       {selectedImages.length > 0 && (
         <div>
           <h3>Captured pages: {selectedImages.length}</h3>
+          {editingIndex !== null && (
+            <div style={{ marginBottom: "25px" }}>
+              <h3>Crop Page {editingIndex + 1}</h3>
+
+              <div
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  height: "60vh",
+                  maxHeight: "500px",
+                  background: "#222",
+                  borderRadius: "10px",
+                  overflow: "hidden",
+                }}
+              >
+                <Cropper
+                  image={selectedImages[editingIndex]?.previewUrl}
+                  crop={crop}
+                  zoom={zoom}
+                  onCropChange={setCrop}
+                  onZoomChange={setZoom}
+                  onCropComplete={(_, croppedPixels) =>
+                    setCroppedAreaPixels(croppedPixels)
+                  }
+                />
+              </div>
+
+              <div style={{ marginTop: "15px" }}>
+                <label>Zoom</label>
+
+                <input
+                  type="range"
+                  min={1}
+                  max={4}
+                  step={0.1}
+                  value={zoom}
+                  onChange={(event) => setZoom(Number(event.target.value))}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              <button type="button" onClick={confirmCrop}>
+                Confirm Crop
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingIndex(null);
+                  setCroppedAreaPixels(null);
+                  setCrop({ x: 0, y: 0 });
+                  setZoom(1);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
 
           {selectedImages.map((image, index) => (
             <div key={image.previewUrl}>
@@ -240,6 +395,18 @@ function PassageScanner({ token, sessionId }) {
                   borderRadius: "8px",
                 }}
               />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingIndex(index);
+                  setCrop({ x: 0, y: 0 });
+                  setZoom(1);
+                  setCroppedAreaPixels(null);
+                }}
+              >
+                {image.isCropped ? "Adjust Crop" : "Crop Page"}
+              </button>
 
               <button
                 type="button"
