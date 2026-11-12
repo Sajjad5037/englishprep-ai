@@ -1001,7 +1001,7 @@ useEffect(() => {
         } else {
           setPassageContent(data.extracted_text || "");
         }
-        setShowPassageScanner(false);
+        
         setScanSessionId(null);
         setScanError("");
       }
