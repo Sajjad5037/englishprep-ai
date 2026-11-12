@@ -81,8 +81,9 @@ function PassageScanner({ token, sessionId }) {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 3840 },
-          height: { ideal: 2160 },
+          width: { ideal: 3024 },
+          height: { ideal: 4032 },
+          aspectRatio: { ideal: 3 / 4 },
         },
         audio: false,
       });
