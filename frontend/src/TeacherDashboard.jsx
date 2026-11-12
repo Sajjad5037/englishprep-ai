@@ -407,6 +407,7 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [passageCategory, setPassageCategory] = useState("Reading comprehension");
   const [passageContent, setPassageContent] = useState("");
   const [showPassageScanner, setShowPassageScanner] = useState(false);
+  const [scanPurpose, setScanPurpose] = useState("passage");
   const [scanSessionId, setScanSessionId] = useState(null);
   const [scanQrCode, setScanQrCode] = useState("");
   const [scanStatus, setScanStatus] = useState("idle");
@@ -791,9 +792,10 @@ async function createQuestion(event) {
   }
 }
 
-const startPassageScanning = async () => {
+const startPassageScanning = async (purpose = "passage") => {
   try {
     setScanError("");
+    setScanPurpose(purpose);
     setScanStatus("creating");
 
     const response = await authenticatedFetch(
@@ -936,7 +938,11 @@ useEffect(() => {
       setScanStatus(data.status);
 
       if (data.status === "completed") {
-        setPassageContent(data.extracted_text || "");
+        if (scanPurpose === "question") {
+          setQuestionPrompt(data.extracted_text || "");
+        } else {
+          setPassageContent(data.extracted_text || "");
+        }
         setShowPassageScanner(false);
         setScanSessionId(null);
         setScanError("");
@@ -970,7 +976,7 @@ useEffect(() => {
     clearInterval(interval);
   };
 
-}, [scanSessionId, accessToken]);
+}, [scanSessionId, accessToken, scanPurpose]);
 
 
   useEffect(() => {
@@ -3725,19 +3731,67 @@ const examsForSelectedDate = selectedExamDate
                 </select>
               </label>
 
-              <label className="teacher-field">
-                Question text
+              <div className="teacher-field">
+                <label htmlFor="question-prompt">Question text</label>
+
+                <div className="passage-scan-actions">
+                  <button
+                    type="button"
+                    className="teacher-secondary"
+                    onClick={() => startPassageScanning("question")}
+                    disabled={scanStatus === "creating"}
+                  >
+                    {scanStatus === "creating"
+                      ? "Preparing scanner..."
+                      : "Scan question with phone"}
+                  </button>
+
+                  <span>
+                    Scan a printed question using your mobile camera and convert it into text.
+                  </span>
+                </div>
+
                 <textarea
+                  id="question-prompt"
                   value={questionPrompt}
-                  onChange={(event) =>
-                    setQuestionPrompt(event.target.value)
-                  }
+                  onChange={(event) => setQuestionPrompt(event.target.value)}
                   rows={3}
                   minLength={3}
                   placeholder="Enter the question shown to students..."
                   required
                 />
-              </label>
+              </div>
+              {showPassageScanner && (
+                <div className="passage-scan-panel">
+                  <div className="passage-scan-panel-header">
+                    <h3>Scan question using your phone</h3>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowPassageScanner(false)}
+                      aria-label="Close scanner"
+                    >
+                      <X size={19} />
+                    </button>
+                  </div>
+
+                  <p>Open your phone camera and scan this QR code.</p>
+
+                  {scanQrCode && (
+                    <img
+                      src={scanQrCode}
+                      alt="QR code for question scanning"
+                    />
+                  )}
+
+                  <p>Waiting for your phone to upload the question...</p>
+                </div>
+              )}
+
+              {scanError && (
+                <p className="teacher-error">{scanError}</p>
+              )}
+
 
               <label className="teacher-field">
                 Question type
