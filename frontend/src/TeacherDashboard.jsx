@@ -3857,6 +3857,14 @@ const examsForSelectedDate = selectedExamDate
               ? "Preparing scanner..."
               : "Scan passage with phone"}
           </button>
+          <button
+            type="button"
+            className="teacher-secondary"
+            onClick={() => startWebcam("passage")}
+            disabled={webcamLoading}
+          >
+            {webcamLoading ? "Preparing webcam..." : "Scan passage with webcam"}
+          </button>
 
           <span className="passage-scan-hint">
             Scan printed pages using your mobile camera and convert them into text.
