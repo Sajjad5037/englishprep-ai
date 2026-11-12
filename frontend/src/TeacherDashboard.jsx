@@ -1002,7 +1002,7 @@ useEffect(() => {
           setPassageContent(data.extracted_text || "");
         }
         
-        setScanSessionId(null);
+        // hello theresetScanSessionId(null);
         setScanError("");
       }
 
