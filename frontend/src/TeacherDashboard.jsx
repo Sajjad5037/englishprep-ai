@@ -3946,7 +3946,18 @@ const examsForSelectedDate = selectedExamDate
         DEBUG: Webcam video element should appear below
       </p>
         <video
-          ref={webcamRef}
+          ref={(video) => {
+            webcamRef.current = video;
+
+            if (video && webcamStream) {
+              video.srcObject = webcamStream;
+
+              video.play().catch((error) => {
+                console.error("Webcam playback error:", error);
+                setScanError("Unable to start webcam preview.");
+              });
+            }
+          }}
           autoPlay
           playsInline
           muted
