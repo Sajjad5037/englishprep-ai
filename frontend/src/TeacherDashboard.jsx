@@ -402,6 +402,7 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [questionOptions, setQuestionOptions] = useState("");
   const [questionAnswer, setQuestionAnswer] = useState("");
   const [questionCriteria, setQuestionCriteria] = useState("");
+  const [generatingCriteria, setGeneratingCriteria] = useState(false);
   const [savingQuestion, setSavingQuestion] = useState(false);
   const [passageTitle, setPassageTitle] = useState("");
   const [passageCategory, setPassageCategory] = useState("Reading comprehension");
@@ -616,6 +617,51 @@ async function addQuestionToExam(event) {
     setAddingQuestion(false);
   }
 }
+
+async function generateMarkingCriteria() {
+  setQuestionError("");
+  setGeneratingCriteria(true);
+
+  try {
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/content/questions/generate-marking-criteria`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: questionPrompt.trim(),
+          correct_answer: questionAnswer.trim(),
+          question_type: questionType,
+        }),
+      },
+      accessToken
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to generate marking criteria."
+      );
+    }
+
+    const criteriaText = data.marking_criteria
+      .map((item) => item.criterion)
+      .join("\n");
+
+    setQuestionCriteria(criteriaText);
+
+  } catch (error) {
+    setQuestionError(
+      error.message || "Unable to generate marking criteria."
+    );
+  } finally {
+    setGeneratingCriteria(false);
+  }
+}
+
 
 async function createQuestionGroup() {
   setGroupQuestionError("");
@@ -3868,6 +3914,26 @@ const examsForSelectedDate = selectedExamDate
 
               <label className="teacher-field">
                 Marking criteria (one criterion per line)
+                <div className="passage-scan-actions">
+                  <button
+                    type="button"
+                    className="teacher-secondary"
+                    onClick={generateMarkingCriteria}
+                    disabled={
+                      !questionPrompt.trim() ||
+                      !questionAnswer.trim() ||
+                      generatingCriteria
+                    }
+                  >
+                    {generatingCriteria
+                      ? "Generating criteria..."
+                      : "Generate marking criteria"}
+                  </button>
+
+                  <span>
+                    Generate suggested marking criteria using the question and reference answer.
+                  </span>
+                </div>
                 <textarea
                   value={questionCriteria}
                   onChange={(event) =>
