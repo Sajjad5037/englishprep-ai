@@ -234,6 +234,7 @@ def extract_passage_text(images: list[tuple[str, bytes]]) -> str:
         )
 
     return extracted_text
+
 @router.post("/diagnostics")
 async def report_scan_diagnostics(
     session_id: str,
@@ -360,6 +361,26 @@ async def upload_passage_images(
                 raise ValueError(
                     "Each image must be 10 MB or smaller."
                 )
+            diagnostic_dir = os.path.join(
+                tempfile.gettempdir(),
+                "passage_scan_diagnostics"
+            )
+            os.makedirs(diagnostic_dir, exist_ok=True)
+
+            extension = mimetypes.guess_extension(mime_type) or ".jpg"
+
+            diagnostic_path = os.path.join(
+                diagnostic_dir,
+                f"{session_id}_page_{len(images) + 1}{extension}"
+            )
+
+            with open(diagnostic_path, "wb") as diagnostic_file:
+                diagnostic_file.write(image_bytes)
+
+            print(
+                f"Diagnostic image saved: {diagnostic_path} "
+                f"({len(image_bytes)} bytes)"
+            )
 
             images.append((mime_type, image_bytes))
 
