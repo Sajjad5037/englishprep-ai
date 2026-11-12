@@ -901,7 +901,7 @@ const startWebcam = async (purpose = "passage") => {
   try {
     setScanError("");
     setScanPurpose(purpose);
-    setScanStatus("creating");
+    
     setWebcamLoading(true);
 
     // Create a backend scanning session.
