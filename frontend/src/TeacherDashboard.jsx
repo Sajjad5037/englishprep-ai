@@ -1117,39 +1117,7 @@ async function createPassage(event) {
     setSavingPassage(false);
   }
 }
-  useEffect(() => {
-  if (!showWebcamScanner || !webcamActive || !webcamStream) {
-    return;
-  }
-
-  const video = webcamRef.current;
-
-  if (!video) {
-    console.error("Webcam video element is not available.");
-    return;
-  }
-
-  console.log("Attaching webcam stream:", webcamStream);
-
-  video.srcObject = webcamStream;
-
-  video.play()
-    .then(() => {
-      console.log("Webcam preview started:", {
-        width: video.videoWidth,
-        height: video.videoHeight,
-      });
-    })
-    .catch((error) => {
-      console.error("Webcam playback error:", error);
-      setScanError("Unable to start webcam preview.");
-    });
-
-  return () => {
-    video.pause();
-    video.srcObject = null;
-  };
-}, [showWebcamScanner, webcamActive, webcamStream]);
+  
   useEffect(() => {
     loadExams();
     // eslint-disable-next-line react-hooks/exhaustive-deps
