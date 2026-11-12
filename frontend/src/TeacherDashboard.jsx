@@ -846,6 +846,33 @@ async function createQuestion(event) {
   }
 }
 
+const downloadDiagnosticImage = async () => {
+  try {
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/passage-scanner/diagnostics/image/${scanSessionId}/1`,
+      { method: "GET" },
+      accessToken
+    );
+
+    if (!response.ok) {
+      throw new Error("Unable to download diagnostic image.");
+    }
+
+    const blob = await response.blob();
+    const imageUrl = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = imageUrl;
+    link.download = "diagnostic-page-1.jpg";
+    link.click();
+
+    URL.revokeObjectURL(imageUrl);
+  } catch (error) {
+    console.error("Diagnostic image download failed:", error);
+    setScanError(error.message);
+  }
+};
+
 const startPassageScanning = async (purpose = "passage") => {
   try {
     setScanError("");
@@ -3714,6 +3741,22 @@ const examsForSelectedDate = selectedExamDate
             <p>
               Waiting for your phone to upload the passage...
             </p>
+            <button
+              type="button"
+              className="teacher-secondary"
+              onClick={downloadDiagnosticImage}
+              disabled={!scanSessionId}
+            >
+              Download diagnostic image
+            </button>
+            <button
+              type="button"
+              className="teacher-secondary"
+              onClick={downloadDiagnosticImage}
+              disabled={!scanSessionId}
+            >
+              Download diagnostic image
+            </button>
             <div className="passage-scan-diagnostics">
               <h4>Phone diagnostic logs</h4>
 
