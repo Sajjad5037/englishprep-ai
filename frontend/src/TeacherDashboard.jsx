@@ -940,6 +940,8 @@ useEffect(() => {
       if (data.status === "completed") {
         if (scanPurpose === "question") {
           setQuestionPrompt(data.extracted_text || "");
+        } else if (scanPurpose === "reference_answer") {
+          setQuestionAnswer(data.extracted_text || "");
         } else {
           setPassageContent(data.extracted_text || "");
         }
@@ -3764,7 +3766,11 @@ const examsForSelectedDate = selectedExamDate
               {showPassageScanner && (
                 <div className="passage-scan-panel">
                   <div className="passage-scan-panel-header">
-                    <h3>Scan question using your phone</h3>
+                    <h3>
+                      {scanPurpose === "reference_answer"
+                        ? "Scan reference answer using your phone"
+                        : "Scan question using your phone"}
+                    </h3>
 
                     <button
                       type="button"
@@ -3784,7 +3790,10 @@ const examsForSelectedDate = selectedExamDate
                     />
                   )}
 
-                  <p>Waiting for your phone to upload the question...</p>
+                  <p>
+                    Waiting for your phone to upload the{" "}
+                    {scanPurpose === "reference_answer" ? "reference answer" : "question"}...
+                  </p>
                 </div>
               )}
 
@@ -3825,9 +3834,28 @@ const examsForSelectedDate = selectedExamDate
                 </label>
               )}
 
-              <label className="teacher-field">
-                Reference answer
+              <div className="teacher-field">
+                <label htmlFor="reference-answer">Reference answer</label>
+
+                <div className="passage-scan-actions">
+                  <button
+                    type="button"
+                    className="teacher-secondary"
+                    onClick={() => startPassageScanning("reference_answer")}
+                    disabled={scanStatus === "creating"}
+                  >
+                    {scanStatus === "creating"
+                      ? "Preparing scanner..."
+                      : "Scan reference answer with phone"}
+                  </button>
+
+                  <span>
+                    Scan a handwritten or printed reference answer using your mobile camera.
+                  </span>
+                </div>
+
                 <textarea
+                  id="reference-answer"
                   value={questionAnswer}
                   onChange={(event) =>
                     setQuestionAnswer(event.target.value)
@@ -3836,7 +3864,7 @@ const examsForSelectedDate = selectedExamDate
                   placeholder="Enter the expected answer or acceptable answer guidance..."
                   required
                 />
-              </label>
+              </div>
 
               <label className="teacher-field">
                 Marking criteria (one criterion per line)
