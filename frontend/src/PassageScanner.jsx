@@ -47,6 +47,7 @@ function PassageScanner({ token, sessionId }) {
   }, []);
 
   const startCamera = async () => {
+    console.log("START CAMERA FUNCTION EXECUTED");
     try {
       setError("");
 
