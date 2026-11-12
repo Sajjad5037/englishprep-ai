@@ -342,11 +342,16 @@ const confirmCrop = async () => {
                   image={selectedImages[editingIndex]?.previewUrl}
                   crop={crop}
                   zoom={zoom}
+                  minZoom={1}
+                  maxZoom={5}
+                  zoomSpeed={0.5}
                   onCropChange={setCrop}
                   onZoomChange={setZoom}
                   onCropComplete={(_, croppedPixels) =>
                     setCroppedAreaPixels(croppedPixels)
                   }
+                  restrictPosition={false}
+                  objectFit="contain"
                 />
               </div>
 
