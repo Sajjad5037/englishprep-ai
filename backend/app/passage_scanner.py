@@ -112,7 +112,12 @@ def create_scan_session(
 
     remove_expired_sessions()
 
-    if purpose not in {"passage", "question", "reference_answer"}:
+    if purpose not in {
+        "passage",
+        "question",
+        "reference_answer",
+        "student_answer",
+    }:
         raise HTTPException(
             status_code=422,
             detail="Invalid scanning purpose.",
