@@ -287,6 +287,9 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [resultsDateFilter, setResultsDateFilter] = useState("");
   
   const [questionMarks, setQuestionMarks] = useState(1);
+  const [selectedPassage, setSelectedPassage] = useState(null);
+  const [editedPassageContent, setEditedPassageContent] = useState("");
+  const [temporaryPassageEdits, setTemporaryPassageEdits] = useState({});
 
   const [resultsSubjectFilter, setResultsSubjectFilter] = useState("");
   const [resultsClassFilter, setResultsClassFilter] = useState("");
@@ -306,7 +309,13 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
       studentResults.map((result) => result.class_name)
     ),
   ].filter(Boolean).sort();
+  const openPassage = (passage) => {
+  setSelectedPassage(passage);
 
+  setEditedPassageContent(
+    temporaryPassageEdits[passage.id] ?? passage.content ?? ""
+  );
+};
   // Unique examinations
   const resultExams = Array.from(
     new Map(
@@ -1944,38 +1953,51 @@ const examsForSelectedDate = selectedExamDate
                     </div>
                 ) : (
                 <div className="teacher-table-wrap">
-                    <table className="teacher-table">
+                  <table className="teacher-table">
                     <thead>
-                        <tr>
+                      <tr>
                         <th>Title</th>
                         <th>Category</th>
                         <th>Status</th>
                         <th>Created</th>
-                        </tr>
+                        <th>Actions</th>
+                      </tr>
                     </thead>
+
                     <tbody>
-                        {filteredPassages.map((passage) => (
+                      {filteredPassages.map((passage) => (
                         <tr key={passage.id}>
-                            <td>
+                          <td>
                             <strong>{passage.title}</strong>
-                            </td>
-                            <td>{passage.category}</td>
-                            <td>
+                          </td>
+
+                          <td>{passage.category}</td>
+
+                          <td>
                             <span className="teacher-status">
-                                {passage.status}
+                              {passage.status}
                             </span>
-                            </td>
-                            <td>
+                          </td>
+
+                          <td>
                             {passage.created_at
-                                ? new Date(
-                                    passage.created_at
-                                ).toLocaleDateString()
-                                : "—"}
-                            </td>
+                              ? new Date(passage.created_at).toLocaleDateString()
+                              : "—"}
+                          </td>
+
+                          <td>
+                            <button
+                              type="button"
+                              className="teacher-secondary"
+                              onClick={() => openPassage(passage)}
+                            >
+                              View Passage
+                            </button>
+                          </td>
                         </tr>
-                        ))}
+                      ))}
                     </tbody>
-                    </table>
+                  </table>
                 </div>
                 )}
             </section>
@@ -3777,6 +3799,7 @@ const examsForSelectedDate = selectedExamDate
             </div>
           </div>
         )}
+
         
 
         {scanError && (
@@ -3801,6 +3824,75 @@ const examsForSelectedDate = selectedExamDate
           </button>
         </div>
       </form>
+    </section>
+  </div>
+)}
+      {selectedPassage && (
+  <div
+    className="teacher-modal-backdrop"
+    onClick={() => setSelectedPassage(null)}
+  >
+    <section
+      className="teacher-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="view-passage-title"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="teacher-modal-head">
+        <h2 id="view-passage-title">
+          Edit Passage: {selectedPassage.title}
+        </h2>
+
+        <button
+          type="button"
+          onClick={() => setSelectedPassage(null)}
+          aria-label="Close dialog"
+        >
+          <X size={19} />
+        </button>
+      </div>
+
+      <label className="teacher-field">
+        Passage text
+        <textarea
+          value={editedPassageContent}
+          onChange={(event) =>
+            setEditedPassageContent(event.target.value)
+          }
+          rows={15}
+          style={{
+            minHeight: "300px",
+            resize: "vertical",
+            lineHeight: "1.6",
+          }}
+        />
+      </label>
+
+      <div className="teacher-modal-actions">
+        <button
+          type="button"
+          className="teacher-secondary"
+          onClick={() => setSelectedPassage(null)}
+        >
+          Cancel
+        </button>
+
+       <button
+        type="button"
+        className="teacher-primary"
+        onClick={() => {
+          setTemporaryPassageEdits((previous) => ({
+            ...previous,
+            [selectedPassage.id]: editedPassageContent,
+          }));
+
+          setSelectedPassage(null);
+        }}
+      >
+        Done
+      </button>
+      </div>
     </section>
   </div>
 )}
