@@ -321,6 +321,85 @@ async function sendAIChatMessage() {
   }
 }
 useEffect(() => {
+  if (!scanSessionId || !scanQuestionId || scanPurpose !== "student_answer") {
+    return;
+  }
+
+  let isActive = true;
+
+  const checkStudentAnswerScanStatus = async () => {
+    try {
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/api/passage-scanner/sessions/${scanSessionId}`,
+        {
+          method: "GET",
+        },
+        accessToken
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.detail || "Unable to check scanning status."
+        );
+      }
+
+      const data = await response.json();
+
+      if (!isActive) return;
+
+      setScanStatus(data.status);
+
+      if (data.status === "completed") {
+        const extractedText = data.extracted_text || "";
+
+        setAnswers((previous) => ({
+          ...previous,
+          [scanQuestionId]: extractedText,
+        }));
+
+        setAnswerSaveStatus((previous) => ({
+          ...previous,
+          [scanQuestionId]: "unsaved",
+        }));
+
+        setScanError("");
+        setScanStatus("completed");
+        setScanSessionId(null);
+        setScanQuestionId(null);
+      }
+
+      if (data.status === "failed") {
+        setScanError(data.error || "Handwritten answer extraction failed.");
+        setScanSessionId(null);
+        setScanQuestionId(null);
+      }
+    } catch (error) {
+      if (!isActive) return;
+
+      console.error("Student scanning status error:", error);
+      setScanError(error.message || "Unable to check scanning status.");
+    }
+  };
+
+  checkStudentAnswerScanStatus();
+
+  const pollingInterval = setInterval(
+    checkStudentAnswerScanStatus,
+    3000
+  );
+
+  return () => {
+    isActive = false;
+    clearInterval(pollingInterval);
+  };
+}, [
+  scanSessionId,
+  scanQuestionId,
+  scanPurpose,
+  accessToken,
+]);
+useEffect(() => {
   aiChatBottomRef.current?.scrollIntoView({
     behavior: "smooth",
     block: "end",
