@@ -327,6 +327,7 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [showPassagePreview, setShowPassagePreview] = useState(false);
   const [showQuestionPreview, setShowQuestionPreview] = useState(false);
   const [resultsSearch, setResultsSearch] = useState("");
+  const [showReferenceAnswerPreview, setShowReferenceAnswerPreview] = useState(false);
   // Unique subjects in the teacher's results
   const resultSubjects = [
     ...new Set(
@@ -4046,6 +4047,7 @@ const examsForSelectedDate = selectedExamDate
                         ? "Scan reference answer using your phone"
                         : "Scan question using your phone"}
                     </h3>
+                    
 
                     <button
                       type="button"
@@ -4155,6 +4157,14 @@ const examsForSelectedDate = selectedExamDate
                   required
                 />
               </div>
+              <button
+                type="button"
+                className="teacher-primary teacher-view-passage-btn"
+                onClick={() => setShowReferenceAnswerPreview(true)}
+                disabled={!questionAnswer.trim()}
+              >
+                View Reference Answer
+              </button>
 
               <label className="teacher-field">
                 Marking criteria (one criterion per line)
@@ -4223,6 +4233,115 @@ const examsForSelectedDate = selectedExamDate
           </section>
         </div>
       )}
+      {/* Question Preview Modal */}
+{showQuestionPreview && (
+  <div
+    className="teacher-modal-backdrop"
+    onClick={() => setShowQuestionPreview(false)}
+    style={{ zIndex: 10002 }}
+  >
+    <section
+      className="teacher-modal teacher-passage-editor"
+      role="dialog"
+      aria-modal="true"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="teacher-modal-head">
+        <h2>View and Edit Question</h2>
+
+        <button
+          type="button"
+          onClick={() => setShowQuestionPreview(false)}
+          aria-label="Close question preview"
+        >
+          <X size={19} />
+        </button>
+      </div>
+
+      <label className="teacher-field">
+        Question text
+
+        <textarea
+          value={questionPrompt}
+          onChange={(event) => setQuestionPrompt(event.target.value)}
+          rows={20}
+          style={{
+            minHeight: "500px",
+            height: "65vh",
+            resize: "vertical",
+            lineHeight: "1.7",
+            fontSize: "14px",
+          }}
+        />
+      </label>
+
+      <div className="teacher-modal-actions">
+        <button
+          type="button"
+          className="teacher-primary"
+          onClick={() => setShowQuestionPreview(false)}
+        >
+          Done
+        </button>
+      </div>
+    </section>
+  </div>
+)}
+
+{/* Reference Answer Preview Modal */}
+{showReferenceAnswerPreview && (
+  <div
+    className="teacher-modal-backdrop"
+    onClick={() => setShowReferenceAnswerPreview(false)}
+    style={{ zIndex: 10002 }}
+  >
+    <section
+      className="teacher-modal teacher-passage-editor"
+      role="dialog"
+      aria-modal="true"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="teacher-modal-head">
+        <h2>View and Edit Reference Answer</h2>
+
+        <button
+          type="button"
+          onClick={() => setShowReferenceAnswerPreview(false)}
+          aria-label="Close reference answer preview"
+        >
+          <X size={19} />
+        </button>
+      </div>
+
+      <label className="teacher-field">
+        Reference answer
+
+        <textarea
+          value={questionAnswer}
+          onChange={(event) => setQuestionAnswer(event.target.value)}
+          rows={20}
+          style={{
+            minHeight: "500px",
+            height: "65vh",
+            resize: "vertical",
+            lineHeight: "1.7",
+            fontSize: "14px",
+          }}
+        />
+      </label>
+
+      <div className="teacher-modal-actions">
+        <button
+          type="button"
+          className="teacher-primary"
+          onClick={() => setShowReferenceAnswerPreview(false)}
+        >
+          Done
+        </button>
+      </div>
+    </section>
+  </div>
+)}
 
 
     </div>
