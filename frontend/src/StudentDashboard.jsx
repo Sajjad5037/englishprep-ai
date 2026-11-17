@@ -357,6 +357,16 @@ useEffect(() => {
           ...previous,
           [scanQuestionId]: extractedText,
         }));
+        requestAnimationFrame(() => {
+          const textarea = document.querySelector(
+            `textarea[data-question-id="${scanQuestionId}"]`
+          );
+
+          if (textarea) {
+            textarea.style.height = "auto";
+            textarea.style.height = `${textarea.scrollHeight}px`;
+          }
+          });
 
         setAnswerSaveStatus((previous) => ({
           ...previous,
@@ -2150,6 +2160,7 @@ async function saveStudentAnswer(
     </div>
 
     <textarea
+     data-question-id={questionId}
       onPaste={(event) => {
         event.preventDefault();
       }}
@@ -2164,6 +2175,8 @@ async function saveStudentAnswer(
           ...previous,
           [questionId]: latestAnswer,
         }));
+        
+        
 
         setAnswerSaveStatus((previous) => ({
           ...previous,
