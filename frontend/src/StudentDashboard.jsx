@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { authenticatedFetch } from "./api";
+import ReactMarkdown from "react-markdown";
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
 ).replace(/\/$/, "");
@@ -47,7 +48,12 @@ export default function StudentDashboard({
   onLogout,
 }) {
   const [exams, setExams] = useState([]);
+  const [answerMode, setAnswerMode] = useState({});
   const questionPromptRef = useRef(null);
+  const [showQuestionAIChat, setShowQuestionAIChat] = useState(false);
+  const [aiChatMessages, setAiChatMessages] = useState([]);
+  const [aiChatInput, setAiChatInput] = useState("");
+  const aiChatBottomRef = useRef(null);
   const [questionPrompt, setQuestionPrompt] = useState("");
   const [inactivityNoticeCount, setInactivityNoticeCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -59,6 +65,8 @@ export default function StudentDashboard({
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   // Examination timer
   const [remainingTime, setRemainingTime] = useState(0);
+  const [aiChatLoading, setAiChatLoading] = useState(false);
+  const [aiChatError, setAiChatError] = useState("");
   const [isTimerRunning, setIsTimerRunning] = useState(false);
 
   // Inactivity detection
@@ -70,6 +78,58 @@ export default function StudentDashboard({
   const inactivityTimeoutRef = useRef(null);
   const lastActivityRef = useRef(Date.now());
   const examSubmittedRef = useRef(false);
+
+
+  const startPassageScanning = async (purpose = "passage") => {
+  try {
+    setScanError("");
+    setScanPurpose(purpose);
+    setScanStatus("creating");
+
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/passage-scanner/sessions?purpose=${encodeURIComponent(purpose)}`,
+      {
+        method: "POST",
+      },
+      accessToken
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.detail || "Unable to start the scanning session."
+      );
+    }
+
+    const session = await response.json();
+    console.log("Scanning session created:", session);
+
+    const mobileUrl = new URL(window.location.origin);
+    mobileUrl.searchParams.set("scan_token", session.token);
+    mobileUrl.searchParams.set("session_id", session.session_id);
+    mobileUrl.searchParams.set("purpose", purpose);
+    console.log("Generating QR code...");
+    const qrCodeDataUrl = await QRCode.toDataURL(
+      mobileUrl.toString(),
+      {
+        width: 280,
+        margin: 2,
+        errorCorrectionLevel: "M",
+      }
+    );
+    console.log("QR code generated successfully");
+    setScanSessionId(session.session_id);
+    setScanQrCode(qrCodeDataUrl);
+    setScanStatus("waiting");
+    setShowPassageScanner(true);
+    console.log("Opening scanner panel");
+
+  } catch (error) {
+    console.error("Passage scanning error:", error);
+    setScanError(error.message || "Unable to start scanning.");
+    setScanStatus("error");
+  }
+};
   
   
 // Build navigation items: standalone questions or grouped questions.
@@ -144,12 +204,18 @@ const currentGroupPrompt =
   const [savingAnswer, setSavingAnswer] = useState(false);
   const [answerSaveStatus, setAnswerSaveStatus] = useState({});
   const autoSaveTimerRef = useRef(null);
+  const [scanPurpose, setScanPurpose] = useState("passage");
+  const [scanStatus, setScanStatus] = useState("idle");
+  const [scanSessionId, setScanSessionId] = useState(null);
+  const [scanQrCode, setScanQrCode] = useState(null);
+  const [showPassageScanner, setShowPassageScanner] = useState(false);
 
   const [submittingAttempt, setSubmittingAttempt] = useState(false);
   const [currentResultIndex, setCurrentResultIndex] = useState(-1);
   const [submissionResults, setSubmissionResults] = useState(null);
   const [selectedSubject, setSelectedSubject] = useState(null);
   const [selectedPublishedDate, setSelectedPublishedDate] = useState(null);
+  const [scanError, setScanError] = useState("");
 const availableSubjects = Array.from(
   new Set(
     exams
@@ -196,8 +262,76 @@ const selectedDateExams = selectedPublishedDate
   ? examsByPublishedDate[selectedPublishedDate] || []
   : [];
 
-// Countdown timer: runs only while the exam timer is active.
+async function sendAIChatMessage() {
+  const message = aiChatInput.trim();
 
+  if (!message || aiChatLoading) return;
+
+  const previousMessages = aiChatMessages;
+
+  setAiChatLoading(true);
+  setAiChatError("");
+  setAiChatInput("");
+
+  // Display the student's message immediately.
+  setAiChatMessages((prev) => [
+    ...prev,
+    { role: "user", content: message },
+  ]);
+
+  try {
+    const currentResult =
+      submissionResults.question_results[currentResultIndex];
+
+    const response = await authenticatedFetch(
+      `${API_BASE_URL}/api/exams/student/attempts/${submissionResults.attempt_id}/questions/${currentResult.question_id}/ai-chat`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          history: previousMessages,
+        }),
+      },
+      accessToken
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Unable to get an AI response."
+      );
+    }
+
+    setAiChatMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: data.reply },
+    ]);
+  } catch (err) {
+    setAiChatError(
+      err.message || "Something went wrong. Please try again."
+    );
+  } finally {
+    setAiChatLoading(false);
+  }
+}
+useEffect(() => {
+  aiChatBottomRef.current?.scrollIntoView({
+    behavior: "smooth",
+    block: "end",
+  });
+}, [aiChatMessages, aiChatLoading]);
+// Countdown timer: runs only while the exam timer is active.
+useEffect(() => {
+  setShowQuestionAIChat(false);
+  setAiChatMessages([]);
+  setAiChatInput("");
+  setAiChatError("");
+  setAiChatLoading(false);
+}, [currentResultIndex, submissionResults?.attempt_id]);
 // Countdown timer
 useEffect(() => {
   if (!activeExam || !isTimerRunning || remainingTime <= 0) {
@@ -961,6 +1095,313 @@ async function saveStudentAnswer(
                         <h3>Overall Feedback</h3>
                         <p>{result.feedback}</p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiChatMessages([]);
+                          setAiChatInput("");
+                          setShowQuestionAIChat(true);
+                        }}
+                        style={{
+                          marginTop: "20px",
+                          padding: "12px 20px",
+                          border: "none",
+                          borderRadius: "8px",
+                          background: "#285b71",
+                          color: "#ffffff",
+                          cursor: "pointer",
+                          fontWeight: "600",
+                        }}
+                      >
+                        💬 Ask AI about this question
+                      </button>
+                      
+{showQuestionAIChat && (
+  <div
+    style={{
+      marginTop: "24px",
+      border: "1px solid #dce3eb",
+      borderRadius: "16px",
+      background: "#ffffff",
+      overflow: "hidden",
+      boxShadow: "0 4px 16px rgba(0,0,0,0.05)",
+    }}
+  >
+    {/* Chat Header */}
+    <div
+      style={{
+        padding: "18px 22px",
+        background: "#f8fafc",
+        borderBottom: "1px solid #e5e7eb",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <div
+          style={{
+            width: "44px",
+            height: "44px",
+            borderRadius: "12px",
+            background: "#e0f2fe",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "23px",
+          }}
+        >
+          🎓
+        </div>
+
+        <div>
+          <h3 style={{ margin: 0, color: "#1e293b", fontSize: "17px" }}>
+            AI Learning Assistant
+          </h3>
+          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "12px" }}>
+            Understanding your exam results
+          </p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setShowQuestionAIChat(false)}
+        style={{
+          border: "1px solid #d1d5db",
+          background: "#ffffff",
+          color: "#475569",
+          borderRadius: "8px",
+          padding: "8px 13px",
+          cursor: "pointer",
+          fontSize: "13px",
+        }}
+      >
+        ✕ Close
+      </button>
+    </div>
+
+    {/* Messages */}
+    <div
+      style={{
+        height: "380px",
+        overflowY: "auto",
+        padding: "22px",
+        background: "#ffffff",
+        display: "flex",
+        flexDirection: "column",
+        gap: "18px",
+      }}
+    >
+      {aiChatMessages.length === 0 && (
+        <div
+          style={{
+            margin: "auto",
+            textAlign: "center",
+            maxWidth: "360px",
+            color: "#64748b",
+          }}
+        >
+          <div style={{ fontSize: "38px", marginBottom: "12px" }}>💬</div>
+          <h3 style={{ color: "#334155", marginBottom: "8px" }}>
+            Let's understand your results
+          </h3>
+          <p style={{ fontSize: "13px", lineHeight: 1.6 }}>
+            Ask me why you received certain marks, what you missed,
+            or how you can improve your answers.
+          </p>
+        </div>
+      )}
+
+      {aiChatMessages.map((message, index) => (
+        <div
+          key={index}
+          style={{
+            display: "flex",
+            justifyContent:
+              message.role === "user" ? "flex-end" : "flex-start",
+          }}
+        >
+          <div
+            style={{
+              maxWidth: "85%",
+              display: "flex",
+              flexDirection: "column",
+              gap: "6px",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "11px",
+                fontWeight: "600",
+                color: "#64748b",
+                textAlign: message.role === "user" ? "right" : "left",
+              }}
+            >
+              {message.role === "user" ? "YOU" : "AI ASSISTANT"}
+            </span>
+
+            <div
+              style={{
+                padding: "13px 17px",
+                borderRadius:
+                  message.role === "user"
+                    ? "16px 16px 4px 16px"
+                    : "16px 16px 16px 4px",
+                background:
+                  message.role === "user" ? "#e0f2fe" : "#f1f5f9",
+                color: "#1e293b",
+                fontSize: "14px",
+                lineHeight: 1.7,
+                overflowWrap: "anywhere",
+              }}
+            >
+              <ReactMarkdown
+                components={{
+                  p: ({ children }) => (
+                    <p style={{ margin: "0 0 10px" }}>{children}</p>
+                  ),
+                  ul: ({ children }) => (
+                    <ul style={{ paddingLeft: "22px", margin: "8px 0" }}>
+                      {children}
+                    </ul>
+                  ),
+                  ol: ({ children }) => (
+                    <ol style={{ paddingLeft: "22px", margin: "8px 0" }}>
+                      {children}
+                    </ol>
+                  ),
+                  li: ({ children }) => (
+                    <li style={{ marginBottom: "5px" }}>{children}</li>
+                  ),
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* AI Loading Indicator */}
+      {aiChatLoading && (
+        <div style={{ display: "flex", justifyContent: "flex-start" }}>
+          <div
+            style={{
+              padding: "12px 16px",
+              borderRadius: "14px",
+              background: "#f1f5f9",
+              color: "#64748b",
+              fontSize: "13px",
+            }}
+          >
+            AI is thinking...
+          </div>
+        </div>
+      )}
+
+      <div ref={aiChatBottomRef} />
+    </div>
+
+    {/* Error */}
+    {aiChatError && (
+      <div
+        style={{
+          margin: "0 20px 12px",
+          padding: "10px 14px",
+          background: "#fef2f2",
+          border: "1px solid #fecaca",
+          borderRadius: "8px",
+          color: "#b91c1c",
+          fontSize: "13px",
+        }}
+      >
+        {aiChatError}
+      </div>
+    )}
+
+    {/* Message Composer */}
+    <div
+      style={{
+        padding: "16px 20px",
+        borderTop: "1px solid #e5e7eb",
+        background: "#f8fafc",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          gap: "10px",
+        }}
+      >
+        <textarea
+          value={aiChatInput}
+          onChange={(e) => setAiChatInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              sendAIChatMessage();
+            }
+          }}
+          placeholder="Ask a question about your marks..."
+          rows={2}
+          disabled={aiChatLoading}
+          style={{
+            flex: 1,
+            resize: "vertical",
+            padding: "13px 15px",
+            borderRadius: "10px",
+            border: "1px solid #cbd5e1",
+            background: "#ffffff",
+            fontSize: "14px",
+            lineHeight: 1.5,
+            outline: "none",
+            boxSizing: "border-box",
+            fontFamily: "inherit",
+          }}
+        />
+
+        <button
+          type="button"
+          onClick={sendAIChatMessage}
+          disabled={!aiChatInput.trim() || aiChatLoading}
+          style={{
+            minWidth: "95px",
+            height: "45px",
+            border: "none",
+            borderRadius: "10px",
+            background: "#285b71",
+            color: "#ffffff",
+            fontWeight: "600",
+            fontSize: "13px",
+            cursor:
+              !aiChatInput.trim() || aiChatLoading
+                ? "not-allowed"
+                : "pointer",
+            opacity:
+              !aiChatInput.trim() || aiChatLoading ? 0.55 : 1,
+          }}
+        >
+          {aiChatLoading ? "Thinking..." : "➤ Send"}
+        </button>
+      </div>
+
+      <p
+        style={{
+          margin: "9px 0 0",
+          fontSize: "11px",
+          color: "#94a3b8",
+          textAlign: "center",
+        }}
+      >
+        AI explanations are based on your saved exam evaluation.
+        Press Enter to send · Shift + Enter for a new line
+      </p>
+    </div>
+  </div>
+)}
+
                     </>
                   )}
                 </>
@@ -1556,72 +1997,136 @@ async function saveStudentAnswer(
                   <p>No answer options are available.</p>
                 )}
               </div>
-            ) : (
-              <textarea
-                onPaste={(event) => {
-                  event.preventDefault();
-                }}
-                value={answers[questionId] || ""}
-                onChange={(event) => {
-                  const latestAnswer = event.target.value;
-                  // Automatically expand textarea as the student types
-                  event.target.style.height = "auto";
-                  event.target.style.height = `${event.target.scrollHeight}px`;
+            
+) : (
+  <>
+    <div
+      style={{
+        display: "flex",
+        gap: "10px",
+        marginTop: "12px",
+        marginBottom: "10px",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() =>
+          setAnswerMode((previous) => ({
+            ...previous,
+            [questionId]: "typed",
+          }))
+        }
+        style={{
+          padding: "9px 16px",
+          borderRadius: "8px",
+          border: "1px solid #285b71",
+          background:
+            answerMode[questionId] !== "handwritten"
+              ? "#285b71"
+              : "#ffffff",
+          color:
+            answerMode[questionId] !== "handwritten"
+              ? "#ffffff"
+              : "#285b71",
+          cursor: "pointer",
+        }}
+      >
+        Type answer
+      </button>
 
-                  setAnswers((previous) => ({
-                    ...previous,
-                    [questionId]: latestAnswer,
-                  }));
+      <button
+        type="button"
+        onClick={() => {
+          console.log("Handwritten answer button clicked");
 
-                  setAnswerSaveStatus((previous) => ({
-                    ...previous,
-                    [questionId]: "unsaved",
-                  }));
+          setAnswerMode((previous) => ({
+            ...previous,
+            [questionId]: "handwritten",
+          }));
 
-                  if (autoSaveTimerRef.current) {
-                    clearTimeout(autoSaveTimerRef.current);
-                  }
+          console.log("Calling scanner...");
+          startPassageScanning("student_answer");
+        }}
+        style={{
+          padding: "9px 16px",
+          borderRadius: "8px",
+          border: "1px solid #285b71",
+          background:
+            answerMode[questionId] === "handwritten"
+              ? "#285b71"
+              : "#ffffff",
+          color:
+            answerMode[questionId] === "handwritten"
+              ? "#ffffff"
+              : "#285b71",
+          cursor: "pointer",
+        }}
+      >
+        Handwritten answer
+      </button>
+    </div>
 
-                  autoSaveTimerRef.current = setTimeout(() => {
-                    saveStudentAnswer(
-                      questionId,
-                      latestAnswer
-                    );
-                  }, 1000);
-                }}
-                onBlur={(event) => {
-                  const latestAnswer = event.target.value;
-                  // Automatically expand textarea as the student types
-                  event.target.style.height = "auto";
-                  event.target.style.height = `${event.target.scrollHeight}px`;
+    <textarea
+      onPaste={(event) => {
+        event.preventDefault();
+      }}
+      value={answers[questionId] || ""}
+      onChange={(event) => {
+        const latestAnswer = event.target.value;
 
-                  if (autoSaveTimerRef.current) {
-                    clearTimeout(autoSaveTimerRef.current);
-                    autoSaveTimerRef.current = null;
-                  }
+        event.target.style.height = "auto";
+        event.target.style.height = `${event.target.scrollHeight}px`;
 
-                  saveStudentAnswer(
-                    questionId,
-                    latestAnswer
-                  );
-                }}
-                rows={6}
-                maxLength={20000}
-                placeholder="Write your answer here..."
-                style={{
-                  display: "block",
-                  width: "100%",
-                  marginTop: "10px",
-                  padding: "12px",
-                  border: "1px solid #dce4eb",
-                  borderRadius: "8px",
-                  font: "inherit",
-                  resize: "none",
-                  overflowY: "hidden",
-                  boxSizing: "border-box",
-                }}
-              />
-            )}
+        setAnswers((previous) => ({
+          ...previous,
+          [questionId]: latestAnswer,
+        }));
+
+        setAnswerSaveStatus((previous) => ({
+          ...previous,
+          [questionId]: "unsaved",
+        }));
+
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+        }
+
+        autoSaveTimerRef.current = setTimeout(() => {
+          saveStudentAnswer(questionId, latestAnswer);
+        }, 1000);
+      }}
+      onBlur={(event) => {
+        const latestAnswer = event.target.value;
+
+        event.target.style.height = "auto";
+        event.target.style.height = `${event.target.scrollHeight}px`;
+
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = null;
+        }
+
+        saveStudentAnswer(questionId, latestAnswer);
+      }}
+      rows={6}
+      maxLength={20000}
+      placeholder="Write your answer here..."
+      style={{
+        display: "block",
+        width: "100%",
+        marginTop: "10px",
+        padding: "12px",
+        border: "1px solid #dce4eb",
+        borderRadius: "8px",
+        font: "inherit",
+        resize: "none",
+        overflowY: "hidden",
+        boxSizing: "border-box",
+      }}
+    />
+  </>
+)}
+
           </div>
 
           <button
