@@ -2021,7 +2021,7 @@ const examsForSelectedDate = selectedExamDate
                               className="teacher-secondary"
                               onClick={() => openPassage(passage)}
                             >
-                              View Passage
+                              View Passage 1
                             </button>
                           </td>
                         </tr>
@@ -3778,7 +3778,7 @@ const examsForSelectedDate = selectedExamDate
           onClick={() => setShowPassagePreview(true)}
           disabled={!passageContent.trim()}
         >
-          View Passage
+          View Passage 2
         </button>
         {showPassagePreview && (
   <div
