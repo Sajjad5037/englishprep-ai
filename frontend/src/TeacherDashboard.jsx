@@ -244,6 +244,35 @@ const styles = `
   border-radius: 8px;
   font-weight: 600;
 }
+  .teacher-passage-editor {
+  width: 95vw;
+  max-width: 1200px;
+  max-height: 95vh;
+  overflow-y: auto;
+}
+
+.teacher-passage-editor textarea {
+  width: 100%;
+  height: 70vh;
+  min-height: 450px;
+  max-height: 800px;
+  box-sizing: border-box;
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 14px;
+  resize: vertical;
+}
+
+@media (max-width: 700px) {
+  .teacher-passage-editor {
+    width: 96vw;
+  }
+
+  .teacher-passage-editor textarea {
+    height: 65vh;
+    min-height: 350px;
+  }
+}
 
 .exam-delete-options {
   display: flex;
@@ -3833,7 +3862,7 @@ const examsForSelectedDate = selectedExamDate
     onClick={() => setSelectedPassage(null)}
   >
     <section
-      className="teacher-modal"
+      className="teacher-modal teacher-passage-editor"
       role="dialog"
       aria-modal="true"
       aria-labelledby="view-passage-title"
