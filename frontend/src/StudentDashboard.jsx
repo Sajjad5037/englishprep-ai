@@ -2267,7 +2267,7 @@ async function saveStudentAnswer(
         width: "100%",
       }}
     >
-      <h2>Scan Handwritten Answer</h2>
+      <h2>Scan Handwritten Answer using your phone camera... </h2>
 
       <p>
         Open your phone camera and scan this QR code.
@@ -2305,75 +2305,97 @@ async function saveStudentAnswer(
   </div>
 )}
 
-    {/* Previous / Next navigation */}
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        gap: "12px",
-        marginTop: "28px",
-        paddingTop: "18px",
-        borderTop: "1px solid #e2e8f0",
-      }}
-    >
-      <button
-        type="button"
-        disabled={currentQuestionIndex === 0}
-        onClick={() =>
-          setCurrentQuestionIndex((index) =>
-            Math.max(0, index - 1)
-          )
-        }
-        style={{
-          padding: "10px 14px",
-          border: "1px solid #dce4eb",
-          borderRadius: "8px",
-          background: "#ffffff",
-          cursor:
-            currentQuestionIndex === 0
-              ? "not-allowed"
-              : "pointer",
-          opacity: currentQuestionIndex === 0 ? 0.5 : 1,
-        }}
-      >
-        ← Previous
-      </button>
+    {/* Previous / Next / Submit navigation */}
+<div
+  style={{
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "12px",
+    marginTop: "28px",
+    paddingTop: "18px",
+    borderTop: "1px solid #e2e8f0",
+    flexWrap: "wrap",
+  }}
+>
+  <button
+    type="button"
+    disabled={currentQuestionIndex === 0}
+    onClick={() =>
+      setCurrentQuestionIndex((index) =>
+        Math.max(0, index - 1)
+      )
+    }
+    style={{
+      padding: "10px 14px",
+      border: "1px solid #dce4eb",
+      borderRadius: "8px",
+      background: "#ffffff",
+      cursor:
+        currentQuestionIndex === 0
+          ? "not-allowed"
+          : "pointer",
+      opacity: currentQuestionIndex === 0 ? 0.5 : 1,
+    }}
+  >
+    ← Previous
+  </button>
 
-      <span style={{ color: "#64748b", fontSize: "13px" }}>
-        {currentQuestionIndex + 1} of {examDisplayItems.length}
-      </span>
+  <span style={{ color: "#64748b", fontSize: "13px" }}>
+    {currentQuestionIndex + 1} of {examDisplayItems.length}
+  </span>
 
-      <button
-        type="button"
-        disabled={
-          currentQuestionIndex === examDisplayItems.length - 1
-        }
-        onClick={() =>
-          setCurrentQuestionIndex((index) =>
-            Math.min(examDisplayItems.length - 1, index + 1)
-          )
-        }
-        style={{
-          padding: "10px 14px",
-          border: "none",
-          borderRadius: "8px",
-          background: "#285b71",
-          color: "#ffffff",
-          cursor:
-            currentQuestionIndex === examDisplayItems.length - 1
-              ? "not-allowed"
-              : "pointer",
-          opacity:
-            currentQuestionIndex === examDisplayItems.length - 1
-              ? 0.5
-              : 1,
-        }}
-      >
-        Next →
-      </button>
-    </div>
-  </section>
+  <button
+    type="button"
+    disabled={
+      currentQuestionIndex === examDisplayItems.length - 1
+    }
+    onClick={() =>
+      setCurrentQuestionIndex((index) =>
+        Math.min(examDisplayItems.length - 1, index + 1)
+      )
+    }
+    style={{
+      padding: "10px 14px",
+      border: "none",
+      borderRadius: "8px",
+      background: "#285b71",
+      color: "#ffffff",
+      cursor:
+        currentQuestionIndex === examDisplayItems.length - 1
+          ? "not-allowed"
+          : "pointer",
+      opacity:
+        currentQuestionIndex === examDisplayItems.length - 1
+          ? 0.5
+          : 1,
+    }}
+  >
+    Next →
+  </button>
+
+  <button
+    type="button"
+    onClick={() => setShowSubmitConfirmation(true)}
+    disabled={submittingAttempt || savingAnswer}
+    style={{
+      padding: "10px 18px",
+      border: "none",
+      borderRadius: "8px",
+      background: "#15803d",
+      color: "#ffffff",
+      fontWeight: "600",
+      cursor:
+        submittingAttempt || savingAnswer
+          ? "not-allowed"
+          : "pointer",
+      opacity: submittingAttempt || savingAnswer ? 0.6 : 1,
+    }}
+  >
+    {submittingAttempt ? "Submitting exam..." : "Submit Exam"}
+  </button>
+</div>
+</section>
 )}
  {/* Submit Exam Confirmation Popup */}
   {showSubmitConfirmation && (
