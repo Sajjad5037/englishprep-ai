@@ -324,6 +324,7 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [resultsClassFilter, setResultsClassFilter] = useState("");
   const [resultsExamFilter, setResultsExamFilter] = useState("");
   const [resultsStatusFilter, setResultsStatusFilter] = useState("");
+  const [showPassagePreview, setShowPassagePreview] = useState(false);
   const [resultsSearch, setResultsSearch] = useState("");
   // Unique subjects in the teacher's results
   const resultSubjects = [
@@ -3771,6 +3772,70 @@ const examsForSelectedDate = selectedExamDate
             required
           />
         </label>
+        <button
+          type="button"
+          className="teacher-primary teacher-view-passage-btn"
+          onClick={() => setShowPassagePreview(true)}
+          disabled={!passageContent.trim()}
+        >
+          View Passage
+        </button>
+        {showPassagePreview && (
+  <div
+    className="teacher-modal-backdrop"
+    onClick={() => setShowPassagePreview(false)}
+    style={{ zIndex: 10001 }}
+  >
+    <section
+      className="teacher-modal teacher-passage-editor"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="passage-preview-title"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="teacher-modal-head">
+        <h2 id="passage-preview-title">
+          View and Edit Passage
+        </h2>
+
+        <button
+          type="button"
+          onClick={() => setShowPassagePreview(false)}
+          aria-label="Close passage preview"
+        >
+          <X size={19} />
+        </button>
+      </div>
+
+      <label className="teacher-field">
+        Passage text
+
+        <textarea
+          value={passageContent}
+          onChange={(event) => setPassageContent(event.target.value)}
+          rows={20}
+          style={{
+            minHeight: "500px",
+            height: "65vh",
+            resize: "vertical",
+            lineHeight: "1.7",
+            fontSize: "14px",
+          }}
+        />
+      </label>
+
+      <div className="teacher-modal-actions">
+        <button
+          type="button"
+          className="teacher-primary"
+          onClick={() => setShowPassagePreview(false)}
+        >
+          Done
+        </button>
+      </div>
+    </section>
+  </div>
+)}
                 {showPassageScanner && (
           <div className="passage-scan-panel">
             <div className="passage-scan-panel-header">
@@ -3898,30 +3963,7 @@ const examsForSelectedDate = selectedExamDate
         />
       </label>
 
-      <div className="teacher-modal-actions">
-        <button
-          type="button"
-          className="teacher-secondary"
-          onClick={() => setSelectedPassage(null)}
-        >
-          Cancel
-        </button>
-
-       <button
-        type="button"
-        className="teacher-primary"
-        onClick={() => {
-          setTemporaryPassageEdits((previous) => ({
-            ...previous,
-            [selectedPassage.id]: editedPassageContent,
-          }));
-
-          setSelectedPassage(null);
-        }}
-      >
-        Done
-      </button>
-      </div>
+      
     </section>
   </div>
 )}
