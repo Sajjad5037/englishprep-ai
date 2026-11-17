@@ -55,6 +55,7 @@ class ScanSession:
     user_id: int
     institution_id: int
     expires_at: float
+    purpose: str = "passage"
     status: str = "waiting"
     extracted_text: Optional[str] = None
     error: Optional[str] = None
@@ -104,11 +105,18 @@ class ScanSessionResponse(BaseModel):
 
 @router.post("/sessions", response_model=ScanSessionResponse)
 def create_scan_session(
+    purpose: str = "passage",
     user: User = Depends(require_institution_user),
 ):
     """Create a temporary QR scanning session for a teacher."""
 
     remove_expired_sessions()
+
+    if purpose not in {"passage", "question"}:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid scanning purpose.",
+        )
 
     session_id = secrets.token_urlsafe(16)
     token = secrets.token_urlsafe(32)
@@ -119,6 +127,7 @@ def create_scan_session(
         user_id=user.id,
         institution_id=user.institution_id,
         expires_at=time.time() + SESSION_DURATION_SECONDS,
+        purpose=purpose,
     )
 
     with sessions_lock:
