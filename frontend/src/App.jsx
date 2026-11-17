@@ -218,15 +218,17 @@ function App() {
   const urlParams = new URLSearchParams(window.location.search);
   const scanToken = urlParams.get("scan_token");
   const scanSessionId = urlParams.get("session_id");
+  const scanPurpose = urlParams.get("purpose") || "passage";
 
   if (scanToken && scanSessionId) {
     return (
       <PassageScanner
         token={scanToken}
         sessionId={scanSessionId}
+        purpose={scanPurpose}
       />
     );
-}
+  }
 
     if (urlParams.has("setup_token")) {
       return <AdminSetup />;

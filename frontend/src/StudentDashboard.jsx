@@ -47,6 +47,8 @@ export default function StudentDashboard({
   onLogout,
 }) {
   const [exams, setExams] = useState([]);
+  const questionPromptRef = useRef(null);
+  const [questionPrompt, setQuestionPrompt] = useState("");
   const [inactivityNoticeCount, setInactivityNoticeCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -239,6 +241,14 @@ useEffect(() => {
   submitExam(true);
 }, [remainingTime, activeExam, attemptId]);
 // Automatically submit the exam when the countdown reaches zero.
+useEffect(() => {
+  const textarea = questionPromptRef.current;
+
+  if (!textarea) return;
+
+  textarea.style.height = "auto";
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}, [questionPrompt]);
 useEffect(() => {
   if (
     !activeExam ||
@@ -1704,8 +1714,89 @@ async function saveStudentAnswer(
     </div>
   </section>
 )}
+ {/* Submit Exam Confirmation Popup */}
+  {showSubmitConfirmation && (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.6)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100000,
+        padding: "20px",
+      }}
+    >
+      <div
+        style={{
+          background: "#ffffff",
+          padding: "30px",
+          borderRadius: "14px",
+          maxWidth: "440px",
+          width: "100%",
+          boxShadow: "0 15px 45px rgba(0,0,0,0.2)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, color: "#1e293b" }}>
+          Submit your exam?
+        </h2>
+
+        <p style={{ color: "#475569", lineHeight: 1.7 }}>
+          Are you sure you want to submit your exam? Once submitted,
+          you will not be able to change your answers.
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: "12px",
+            marginTop: "25px",
+          }}
+        >
+          <button
+            type="button"
+            disabled={submittingAttempt}
+            onClick={() => setShowSubmitConfirmation(false)}
+            style={{
+              padding: "11px 18px",
+              border: "1px solid #cbd5e1",
+              borderRadius: "8px",
+              background: "#ffffff",
+              color: "#334155",
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            disabled={submittingAttempt}
+            onClick={() => {
+              setShowSubmitConfirmation(false);
+              submitExam(false);
+            }}
+            style={{
+              padding: "11px 18px",
+              border: "none",
+              borderRadius: "8px",
+              background: "#dc2626",
+              color: "#ffffff",
+              fontWeight: "600",
+              cursor: submittingAttempt ? "wait" : "pointer",
+            }}
+          >
+            {submittingAttempt ? "Submitting..." : "Yes, Submit Exam"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
 
   </div>
+  
 )}
     <div
       style={{
@@ -1718,7 +1809,7 @@ async function saveStudentAnswer(
     >
       <button
         type="button"
-        onClick={submitExam}
+        onClick={() => submitExam(false)}
         disabled={submittingAttempt || savingAnswer}
         style={{
           padding: "12px 20px",

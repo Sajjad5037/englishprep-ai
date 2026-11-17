@@ -4,7 +4,7 @@ import "react-image-crop/dist/ReactCrop.css";
 
 import { API_BASE_URL } from "./api";
 
-function PassageScanner({ token, sessionId }) {
+function PassageScanner({ token, sessionId, purpose = "passage" }) {
   const [status, setStatus] = useState("ready");
   const [error, setError] = useState("");
   const [cameraActive, setCameraActive] = useState(false);
@@ -357,11 +357,14 @@ const confirmCrop = async () => {
   return (
     <div className="passage-scanner-page">
       <h1>EnglishPrep AI</h1>
-      <h2>Scan reading passage</h2>
+     <h2>
+        {purpose === "question" ? "Scan exam question" : "Scan reading passage"}
+      </h2>
 
       <p>
-        Capture each printed passage page using your phone camera.
-        You can capture multiple pages in the correct order.
+        {purpose === "question"
+          ? "Capture the printed exam question using your phone camera. You can capture multiple pages in the correct order."
+          : "Capture each printed passage page using your phone camera. You can capture multiple pages in the correct order."}
       </p>
 
       <p>

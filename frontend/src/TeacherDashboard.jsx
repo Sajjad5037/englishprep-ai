@@ -463,6 +463,7 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [selectedGroupQuestionIds, setSelectedGroupQuestionIds] = useState([]);
   const [groupQuestionError, setGroupQuestionError] = useState("");
   const [savingQuestionGroup, setSavingQuestionGroup] = useState(false);
+  const questionPromptRef = useRef(null);
 
   async function loadExams() {
     setLoading(true);
@@ -880,7 +881,7 @@ const startPassageScanning = async (purpose = "passage") => {
     setScanStatus("creating");
 
     const response = await authenticatedFetch(
-      `${API_BASE_URL}/api/passage-scanner/sessions`,
+      `${API_BASE_URL}/api/passage-scanner/sessions?purpose=${encodeURIComponent(purpose)}`,
       {
         method: "POST",
       },
@@ -900,6 +901,7 @@ const startPassageScanning = async (purpose = "passage") => {
     const mobileUrl = new URL(window.location.origin);
     mobileUrl.searchParams.set("scan_token", session.token);
     mobileUrl.searchParams.set("session_id", session.session_id);
+    mobileUrl.searchParams.set("purpose", purpose);
     console.log("Generating QR code...");
     const qrCodeDataUrl = await QRCode.toDataURL(
       mobileUrl.toString(),
@@ -3867,14 +3869,20 @@ const examsForSelectedDate = selectedExamDate
                 </div>
 
                 <textarea
+                  ref={questionPromptRef}
                   id="question-prompt"
                   value={questionPrompt}
                   onChange={(event) => setQuestionPrompt(event.target.value)}
                   rows={3}
+                  style={{
+                    minHeight: "90px",
+                    overflowY: "hidden",
+                    resize: "none",
+                  }}
                   minLength={3}
                   placeholder="Enter the question shown to students..."
                   required
-                />
+/>
               </div>
               {showPassageScanner && (
                 <div className="passage-scan-panel">
