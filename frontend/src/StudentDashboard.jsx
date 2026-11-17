@@ -47,8 +47,10 @@ export default function StudentDashboard({
   onLogout,
 }) {
   const [exams, setExams] = useState([]);
+  const [inactivityNoticeCount, setInactivityNoticeCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
   const [activeExam, setActiveExam] = useState(null);
   const [attemptId, setAttemptId] = useState(null);
   const [examQuestions, setExamQuestions] = useState([]);
@@ -134,6 +136,7 @@ const currentGroupPrompt =
     examQuestions.find((item) => item.passage)?.passage ||
     null;
   const [answers, setAnswers] = useState({});
+  const [isPassageVisible, setIsPassageVisible] = useState(true);
   const [examLoading, setExamLoading] = useState(false);
   const [examError, setExamError] = useState("");
   const [savingAnswer, setSavingAnswer] = useState(false);
@@ -267,6 +270,7 @@ useEffect(() => {
     inactivityTimeoutRef.current = setTimeout(() => {
       setIsTimerRunning(false);
       setIsInactive(true);
+      setInactivityNoticeCount((previous) => previous + 1);
       setShowInactivityModal(true);
     }, 2 * 60 * 1000);
   };
@@ -526,14 +530,9 @@ async function saveStudentAnswer(
     return;
   }
 
-  if (!isAutomatic) {
-    const confirmed = window.confirm(
-      "Are you sure you want to submit this exam? You will not be able to change your answers afterward."
-    );
-
-    if (!confirmed) {
-      return;
-    }
+  if (!isAutomatic && !showSubmitConfirmation) {
+    setShowSubmitConfirmation(true);
+    return;
   }
 
   setSubmittingAttempt(true);
@@ -1082,14 +1081,85 @@ async function saveStudentAnswer(
     <h2>{activeExam.title}</h2>
 
   
-<div className="exam-timer">
-  <span>Time remaining:</span>
-  <strong>
-    {Math.floor(remainingTime / 3600)}:
-    {String(Math.floor((remainingTime % 3600) / 60)).padStart(2, "0")}:
-    {String(remainingTime % 60).padStart(2, "0")}
-  </strong>
+
+<div
+  className="exam-timer"
+  style={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "20px",
+    padding: "12px 20px",
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    borderRadius: "12px",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
+    width: "fit-content",
+  }}
+>
+  {/* Time Remaining */}
+  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+    <span
+      style={{
+        fontSize: "11px",
+        fontWeight: "700",
+        color: "#64748b",
+        textTransform: "uppercase",
+        letterSpacing: "0.8px",
+      }}
+    >
+      Time Remaining
+    </span>
+
+    <strong
+      style={{
+        fontSize: "24px",
+        color: "#2563eb",
+        fontWeight: "700",
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {Math.floor(remainingTime / 3600)}:
+      {String(Math.floor((remainingTime % 3600) / 60)).padStart(2, "0")}:
+      {String(remainingTime % 60).padStart(2, "0")}
+    </strong>
+  </div>
+
+  <div
+    style={{
+      width: "1px",
+      height: "42px",
+      background: "#cbd5e1",
+    }}
+  />
+
+  {/* Inactivity Notices */}
+  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+    <span
+      style={{
+        fontSize: "11px",
+        fontWeight: "700",
+        color: "#64748b",
+        textTransform: "uppercase",
+        letterSpacing: "0.8px",
+      }}
+    >
+      Inactivity Notices
+    </span>
+
+    <strong
+      style={{
+        fontSize: "24px",
+        color: "#d97706",
+        fontWeight: "700",
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {inactivityNoticeCount}
+    </strong>
+  </div>
 </div>
+
 
 
 
@@ -1115,32 +1185,64 @@ async function saveStudentAnswer(
     style={{
       display: "grid",
       gridTemplateColumns:
-        "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
+        currentPassage && isPassageVisible
+          ? "repeat(auto-fit, minmax(min(100%, 340px), 1fr))"
+          : "minmax(0, 1fr)",
       gap: "24px",
       alignItems: "start",
       marginTop: "24px",
     }}
   >
     {/* LEFT: Reading passage - show only when available */}
-    {currentPassage && (
-      <section
+    {currentPassage && isPassageVisible && (
+  <section
+    style={{
+      padding: "22px",
+      borderRadius: "12px",
+      background: "#f5f7fb",
+      border: "1px solid #e2e8f0",
+      lineHeight: 1.8,
+    }}
+  >
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: "12px",
+        marginBottom: "16px",
+      }}
+    >
+      <h3 style={{ margin: 0 }}>Reading passage</h3>
+
+      <button
+        type="button"
+        onClick={() => setIsPassageVisible((previous) => !previous)}
         style={{
-          padding: "22px",
-          borderRadius: "12px",
-          background: "#f5f7fb",
-          border: "1px solid #e2e8f0",
-          lineHeight: 1.8,
+          padding: "8px 14px",
+          borderRadius: "8px",
+          border: "1px solid #cbd5e1",
+          background: "#ffffff",
+          color: "#2563eb",
+          fontWeight: "600",
+          cursor: "pointer",
         }}
       >
-        <h3 style={{ marginTop: 0 }}>Reading passage</h3>
+        {isPassageVisible ? "Hide passage" : "Show passage"}
+      </button>
+    </div>
 
+    {isPassageVisible && (
+      <>
         <h4>{currentPassage.title}</h4>
 
         <div style={{ whiteSpace: "pre-wrap" }}>
           {currentPassage.content}
         </div>
-      </section>
+      </>
     )}
+  </section>
+)}
 
     {/* RIGHT: One question at a time */}
     
@@ -1167,6 +1269,23 @@ async function saveStudentAnswer(
         alignItems: "center",
       }}
     >
+      {currentPassage && !isPassageVisible && (
+        <button
+          type="button"
+          onClick={() => setIsPassageVisible(true)}
+          style={{
+            padding: "8px 14px",
+            borderRadius: "8px",
+            border: "1px solid #cbd5e1",
+            background: "#f8fafc",
+            color: "#2563eb",
+            fontWeight: "600",
+            cursor: "pointer",
+          }}
+        >
+          Show passage
+        </button>
+      )}
       <h3 style={{ marginTop: 0 }}>
         Question {currentQuestionIndex + 1}
       </h3>
@@ -1243,7 +1362,7 @@ async function saveStudentAnswer(
           
         </div>
 
-          <p style={{ lineHeight: 1.8 }}>
+          <p style={{ lineHeight: 1.8, whiteSpace: "pre-line" }}>
             {question.prompt}
           </p>
 
@@ -1280,9 +1399,15 @@ async function saveStudentAnswer(
                 <strong>Write your sentence below:</strong>
 
                 <textarea
+                  onPaste={(event) => {
+                    event.preventDefault();
+                  }}
                   value={answers[questionId] || ""}
                   onChange={(event) => {
                     const latestAnswer = event.target.value;
+                    // Automatically expand textarea as the student types
+                    event.target.style.height = "auto";
+                    event.target.style.height = `${event.target.scrollHeight}px`;
 
                     setAnswers((previous) => ({
                       ...previous,
@@ -1304,6 +1429,8 @@ async function saveStudentAnswer(
                   }}
                   onBlur={(event) => {
                     const latestAnswer = event.target.value;
+                    event.target.style.height = "auto";
+                    event.target.style.height = `${event.target.scrollHeight}px`;
 
                     if (autoSaveTimerRef.current) {
                       clearTimeout(autoSaveTimerRef.current);
@@ -1323,7 +1450,8 @@ async function saveStudentAnswer(
                     border: "1px solid #dce4eb",
                     borderRadius: "8px",
                     font: "inherit",
-                    resize: "vertical",
+                    resize: "none",
+                    overflowY: "hidden",
                     boxSizing: "border-box",
                   }}
                 />
@@ -1420,9 +1548,15 @@ async function saveStudentAnswer(
               </div>
             ) : (
               <textarea
+                onPaste={(event) => {
+                  event.preventDefault();
+                }}
                 value={answers[questionId] || ""}
                 onChange={(event) => {
                   const latestAnswer = event.target.value;
+                  // Automatically expand textarea as the student types
+                  event.target.style.height = "auto";
+                  event.target.style.height = `${event.target.scrollHeight}px`;
 
                   setAnswers((previous) => ({
                     ...previous,
@@ -1447,6 +1581,9 @@ async function saveStudentAnswer(
                 }}
                 onBlur={(event) => {
                   const latestAnswer = event.target.value;
+                  // Automatically expand textarea as the student types
+                  event.target.style.height = "auto";
+                  event.target.style.height = `${event.target.scrollHeight}px`;
 
                   if (autoSaveTimerRef.current) {
                     clearTimeout(autoSaveTimerRef.current);
@@ -1469,7 +1606,8 @@ async function saveStudentAnswer(
                   border: "1px solid #dce4eb",
                   borderRadius: "8px",
                   font: "inherit",
-                  resize: "vertical",
+                  resize: "none",
+                  overflowY: "hidden",
                   boxSizing: "border-box",
                 }}
               />
