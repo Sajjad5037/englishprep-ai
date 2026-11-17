@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { authenticatedFetch } from "./api";
+import QRCode from "qrcode";
 import ReactMarkdown from "react-markdown";
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
