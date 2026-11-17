@@ -325,6 +325,7 @@ export default function TeacherDashboard({ user, accessToken, onLogout }) {
   const [resultsExamFilter, setResultsExamFilter] = useState("");
   const [resultsStatusFilter, setResultsStatusFilter] = useState("");
   const [showPassagePreview, setShowPassagePreview] = useState(false);
+  const [showQuestionPreview, setShowQuestionPreview] = useState(false);
   const [resultsSearch, setResultsSearch] = useState("");
   // Unique subjects in the teacher's results
   const resultSubjects = [
@@ -2022,7 +2023,7 @@ const examsForSelectedDate = selectedExamDate
                               className="teacher-secondary"
                               onClick={() => openPassage(passage)}
                             >
-                              View Passage 1
+                              View Passage
                             </button>
                           </td>
                         </tr>
@@ -3779,7 +3780,7 @@ const examsForSelectedDate = selectedExamDate
           onClick={() => setShowPassagePreview(true)}
           disabled={!passageContent.trim()}
         >
-          View Passage 2
+          Edit Passage
         </button>
         {showPassagePreview && (
   <div
@@ -4027,7 +4028,15 @@ const examsForSelectedDate = selectedExamDate
                   minLength={3}
                   placeholder="Enter the question shown to students..."
                   required
-/>
+                />
+                <button
+                  type="button"
+                  className="teacher-primary teacher-view-passage-btn"
+                  onClick={() => setShowQuestionPreview(true)}
+                  disabled={!questionPrompt.trim()}
+                >
+                  View Question
+                </button>
               </div>
               {showPassageScanner && (
                 <div className="passage-scan-panel">
