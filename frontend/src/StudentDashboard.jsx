@@ -2149,6 +2149,66 @@ async function saveStudentAnswer(
         </div>
       );
     })}
+    {showPassageScanner && (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0, 0, 0, 0.65)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 99999,
+      padding: "20px",
+    }}
+  >
+    <div
+      style={{
+        background: "#fff",
+        borderRadius: "12px",
+        padding: "30px",
+        textAlign: "center",
+        maxWidth: "420px",
+        width: "100%",
+      }}
+    >
+      <h2>Scan Handwritten Answer</h2>
+
+      <p>
+        Open your phone camera and scan this QR code.
+      </p>
+
+      {scanQrCode && (
+        <img
+          src={scanQrCode}
+          alt="Handwritten answer scanning QR code"
+          style={{
+            width: "280px",
+            maxWidth: "100%",
+            height: "auto",
+          }}
+        />
+      )}
+
+      <p>Status: {scanStatus}</p>
+
+      {scanError && (
+        <p style={{ color: "red" }}>{scanError}</p>
+      )}
+
+      <button
+        onClick={() => {
+          setShowPassageScanner(false);
+          setScanQrCode(null);
+          setScanSessionId(null);
+          setScanStatus("idle");
+        }}
+      >
+        Close
+      </button>
+    </div>
+  </div>
+)}
 
     {/* Previous / Next navigation */}
     <div
