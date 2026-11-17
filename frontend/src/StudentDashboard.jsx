@@ -150,7 +150,7 @@ for (const item of examQuestions) {
     continue;
   }
 
-  // Find or create the parent group.
+  // Find or create the parent group. hello 123
   let groupItem = groupItemById.get(item.group_id);
 
   if (!groupItem) {
