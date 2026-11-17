@@ -209,6 +209,7 @@ const currentGroupPrompt =
   const [scanStatus, setScanStatus] = useState("idle");
   const [scanSessionId, setScanSessionId] = useState(null);
   const [scanQrCode, setScanQrCode] = useState(null);
+  const [scanQuestionId, setScanQuestionId] = useState(null);
   const [showPassageScanner, setShowPassageScanner] = useState(false);
 
   const [submittingAttempt, setSubmittingAttempt] = useState(false);
@@ -2044,6 +2045,8 @@ async function saveStudentAnswer(
             ...previous,
             [questionId]: "handwritten",
           }));
+
+          setScanQuestionId(questionId);
 
           console.log("Calling scanner...");
           startPassageScanning("student_answer");
