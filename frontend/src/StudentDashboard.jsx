@@ -2481,33 +2481,7 @@ async function saveStudentAnswer(
   </div>
   
 )}
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "flex-end",
-        marginTop: "24px",
-        paddingTop: "20px",
-        borderTop: "1px solid #e2e8f0",
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => submitExam(false)}
-        disabled={submittingAttempt || savingAnswer}
-        style={{
-          padding: "12px 20px",
-          border: "none",
-          borderRadius: "8px",
-          background: "#285b71",
-          color: "#ffffff",
-          fontWeight: 600,
-          cursor:
-            submittingAttempt || savingAnswer ? "wait" : "pointer",
-        }}
-      >
-        {submittingAttempt ? "Submitting exam..." : "Submit exam"}
-      </button>
-    </div>
+    
         {showInactivityModal && (
           <div
             style={{
