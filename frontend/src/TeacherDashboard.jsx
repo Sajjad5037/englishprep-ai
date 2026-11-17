@@ -3718,7 +3718,7 @@ const examsForSelectedDate = selectedExamDate
           <button
             type="button"
             className="teacher-secondary"
-            onClick={startPassageScanning}
+            onClick={() => startPassageScanning("passage")}
             disabled={scanStatus === "creating"}
           >
             {scanStatus === "creating"
