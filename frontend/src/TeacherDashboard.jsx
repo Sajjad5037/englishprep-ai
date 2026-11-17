@@ -76,7 +76,13 @@ const styles = `
 .teacher-modal-head button { border:0; background:transparent; color:#788697; cursor:pointer; }
 .teacher-field { display:block; margin-bottom:16px; color:#425267; font-size:11px; font-weight:700; }
 .teacher-field input, .teacher-field select, .teacher-field textarea { display:block; width:100%; min-height:42px; margin-top:7px; padding:9px 11px; border:1px solid #dce4eb; border-radius:8px; color:#26394d; background:white; font:inherit; font-weight:400; }
-.teacher-field textarea { min-height:85px; resize:vertical; }
+.teacher-field textarea {
+  min-height: 90px;
+  height: auto;
+  overflow-y: hidden;
+  resize: none;
+  box-sizing: border-box;
+}
 .teacher-modal-actions { display:flex; justify-content:flex-end; gap:9px; margin-top:20px; }
 .teacher-secondary { min-height:40px; padding:0 13px; border:1px solid #dce4eb; border-radius:8px; color:#536477; background:white; cursor:pointer; }
 .teacher-footer { margin-top:22px; color:#9aa4b1; font-size:10px; }
