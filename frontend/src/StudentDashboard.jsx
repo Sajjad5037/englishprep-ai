@@ -1772,7 +1772,7 @@ async function saveStudentAnswer(
     {/* Render every question or subquestion */}
     {questionsToRender.map((question, index) => {
       const questionId = question.question_id;
-      console.log("QUESTION DATA:", question);
+      
       const isSentenceConstruction =
         String(question.question_type || "")
           .trim()
