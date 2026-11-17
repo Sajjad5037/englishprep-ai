@@ -3866,32 +3866,7 @@ const examsForSelectedDate = selectedExamDate
             <p>
               Waiting for your phone to upload the passage...
             </p>
-            <button
-              type="button"
-              className="teacher-secondary"
-              onClick={downloadDiagnosticImage}
-              disabled={!scanSessionId}
-            >
-              Download diagnostic image
-            </button>
-            <button
-              type="button"
-              className="teacher-secondary"
-              onClick={downloadDiagnosticImage}
-              disabled={!scanSessionId}
-            >
-              Download diagnostic image
-            </button>
-            <div className="passage-scan-diagnostics">
-              <h4>Phone diagnostic logs</h4>
-
-              <textarea
-                value={JSON.stringify(scanDiagnostics, null, 2)}
-                readOnly
-                rows={10}
-                placeholder="Waiting for diagnostic logs from your phone..."
-              />
-            </div>
+            
           </div>
         )}
 
