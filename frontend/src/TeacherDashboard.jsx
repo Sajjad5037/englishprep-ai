@@ -1078,6 +1078,7 @@ useEffect(() => {
         
         // hello theresetScanSessionId(null);
         setScanError("");
+        setScanSessionId(null);
       }
 
       if (data.status === "failed") {
