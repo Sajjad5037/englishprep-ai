@@ -8,6 +8,7 @@ import mimetypes
 import json
 import tempfile
 from google.oauth2 import service_account
+from app.exams import require_student_user
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Optional
@@ -18,6 +19,11 @@ from google.oauth2 import service_account
 from datetime import datetime, timezone
 from fastapi.responses import FileResponse
 from fastapi import Header
+import jwt
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models import Institution
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from fastapi import (
     APIRouter,
@@ -38,6 +44,60 @@ router = APIRouter(
     prefix="/api/passage-scanner",
     tags=["Passage Scanner"],
 )
+bearer_scheme = HTTPBearer(auto_error=False)
+
+def require_scanner_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    """Authenticate an active student, teacher, or administrator."""
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+        )
+
+    secret_key = os.getenv("JWT_SECRET_KEY")
+    if not secret_key:
+        raise RuntimeError("JWT_SECRET_KEY is not configured.")
+
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            secret_key,
+            algorithms=["HS256"],
+        )
+        user_id = int(payload["sub"])
+    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token.",
+        )
+
+    user = db.get(User, user_id)
+
+    if (
+        user is None
+        or not user.is_active
+        or user.institution_id is None
+        or user.role not in {"student", "teacher", "admin"}
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Scanner access required.",
+        )
+
+    institution = db.get(Institution, user.institution_id)
+
+    if institution is None or not institution.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your institution is inactive.",
+        )
+
+    return user
+
 
 # Temporary scanning sessions are kept in memory.
 SESSION_DURATION_SECONDS = 15 * 60
@@ -103,24 +163,41 @@ class ScanSessionResponse(BaseModel):
 
 
 
+
 @router.post("/sessions", response_model=ScanSessionResponse)
 def create_scan_session(
     purpose: str = "passage",
-    user: User = Depends(require_institution_user),
+    user: User = Depends(require_scanner_user),
 ):
-    """Create a temporary QR scanning session for a teacher."""
+    """Create a temporary QR scanning session."""
 
     remove_expired_sessions()
 
-    if purpose not in {
+    allowed_purposes = {
         "passage",
         "question",
         "reference_answer",
         "student_answer",
-    }:
+    }
+
+    if purpose not in allowed_purposes:
         raise HTTPException(
             status_code=422,
             detail="Invalid scanning purpose.",
+        )
+
+    # Students may only scan handwritten answers.
+    if user.role == "student" and purpose != "student_answer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Students can only scan handwritten answers.",
+        )
+
+    # Platform owners must not use this institution scanner.
+    if user.role == "platform_owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Scanner access is not available.",
         )
 
     session_id = secrets.token_urlsafe(16)
@@ -146,16 +223,17 @@ def create_scan_session(
 
 
 
+
 @router.get("/sessions/{session_id}")
 def get_scan_session_status(
     session_id: str,
-    user: User = Depends(require_institution_user),
+    user: User = Depends(require_scanner_user),
 ):
-    """Return the status and extracted text for the teacher's session."""
+    """Return scanning status and extracted text to the session owner."""
 
     session = get_session(session_id)
 
-    # A teacher must only access their own scanning sessions.
+    # Verify session ownership and institution.
     if (
         session.user_id != user.id
         or session.institution_id != user.institution_id
@@ -163,6 +241,13 @@ def get_scan_session_status(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this scanning session.",
+        )
+
+    # Students may only access their own student-answer sessions.
+    if user.role == "student" and session.purpose != "student_answer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Students can only access handwritten-answer scanning sessions.",
         )
 
     response = {
@@ -179,8 +264,6 @@ def get_scan_session_status(
     with session.lock:
         response["diagnostics"] = list(session.diagnostics)
 
-
-    
     return response
 
 
