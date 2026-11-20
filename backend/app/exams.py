@@ -3343,8 +3343,10 @@ def get_student_attempt_results(
             "position": snapshot.get("position"),
             "answer_text": answer.answer_text or "",
             "prompt": question.get("prompt"),
+            "passage": question.get("passage"),
             "reference_answer": question.get("correct_answer"),
             "marking_criteria": question.get("marking_criteria") or [],
+
             "status": (
                 evaluation.status if evaluation else "pending"
             ),

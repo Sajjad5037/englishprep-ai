@@ -992,11 +992,13 @@ async function saveStudentAnswer(
                     
               {result.status === "completed" ? (
                 <>
-                  <h2 style={{ color: "#285b71" }}>
-                    Marks: {result.marks_awarded}
-                    {" / "}
-                    {result.max_marks}
-                  </h2>
+                  {result.sentence_construction_data && (
+                    <h2 style={{ color: "#285b71" }}>
+                      Marks: {result.marks_awarded}
+                      {" / "}
+                      {result.max_marks}
+                    </h2>
+                  )}
 
                   {result.sentence_construction_data ? (
                     <>
@@ -1145,47 +1147,128 @@ async function saveStudentAnswer(
                   ) : (
                     <>
                       {/* Existing conventional examination results */}
-                      <h3>Marking Criteria</h3>
+                      
+                      {/* Question and Passage Panels */}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+                          gap: "24px",
+                          alignItems: "start",
+                          marginTop: "20px",
+                        }}
+                      >
+                        {/* LEFT PANEL: Question and Evaluation */}
+                        <div
+                          style={{
+                            padding: "22px",
+                            background: "#ffffff",
+                            border: "1px solid #e2e8f0",
+                            borderRadius: "12px",
+                            minWidth: 0,
+                          }}
+                        >
+                          <h3 style={{ marginTop: 0 }}>Question</h3>
 
-                      {(result.criterion_results || []).map(
-                        (criterion, criterionIndex) => (
                           <div
-                            key={criterionIndex}
                             style={{
                               padding: "16px",
-                              marginTop: "12px",
                               background: "#f8fafc",
                               borderRadius: "8px",
-                              border: "1px solid #e2e8f0",
+                              lineHeight: 1.7,
+                              marginBottom: "20px",
                             }}
                           >
-                            <h4>
-                              Criterion {criterionIndex + 1}
-                            </h4>
-
-                            <p>
-                              {criterion.met ? "Point identified" : "Point not identified"}
-                            </p>
-
-                            {criterion.evidence && (
-                              <p>
-                                <strong>Evidence:</strong>{" "}
-                                {criterion.evidence}
-                              </p>
-                            )}
-
-                            <p>
-                              <strong>Feedback:</strong>{" "}
-                              {criterion.feedback}
-                            </p>
+                            {result.prompt || "Question text is unavailable."}
                           </div>
-                        )
-                      )}
 
-                      <div style={{ marginTop: "20px" }}>
-                        <h3>Overall Feedback</h3>
+                          <h2 style={{ color: "#285b71" }}>
+                            Marks: {result.marks_awarded} / {result.max_marks}
+                          </h2>
+
+                          <h3>Marking Criteria</h3>
+
+                          {(result.criterion_results || []).map(
+                            (criterion, criterionIndex) => (
+                              <div
+                                key={criterionIndex}
+                                style={{
+                                  padding: "16px",
+                                  marginTop: "12px",
+                                  background: "#f8fafc",
+                                  borderRadius: "8px",
+                                  border: "1px solid #e2e8f0",
+                                }}
+                              >
+                                <h4>Criterion {criterionIndex + 1}</h4>
+
+                                <p>
+                                  {criterion.met
+                                    ? "Point identified"
+                                    : "Point not identified"}
+                                </p>
+
+                                {criterion.evidence && (
+                                  <p>
+                                    <strong>Evidence:</strong> {criterion.evidence}
+                                  </p>
+                                )}
+
+                                <p>
+                                  <strong>Feedback:</strong> {criterion.feedback}
+                                </p>
+                              </div>
+                            )
+                          )}
+                        </div>
+
+                        {/* RIGHT PANEL: Reading Passage */}
+                        <div
+                          style={{
+                            padding: "22px",
+                            background: "#ffffff",
+                            border: "1px solid #e2e8f0",
+                            borderRadius: "12px",
+                            minWidth: 0,
+                          }}
+                        >
+                          <h3 style={{ marginTop: 0 }}>
+                            {result.passage?.title || "Reading Passage"}
+                          </h3>
+
+                          {result.passage?.content ? (
+                            <div
+                              style={{
+                                lineHeight: 1.8,
+                                whiteSpace: "pre-wrap",
+                                overflowWrap: "anywhere",
+                              }}
+                            >
+                              {result.passage.content}
+                            </div>
+                          ) : (
+                            <p style={{ color: "#64748b" }}>
+                              No reading passage is associated with this question.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Overall Feedback - Full Width */}
+                      <div
+                        style={{
+                          marginTop: "24px",
+                          padding: "22px",
+                          background: "#f8fafc",
+                          border: "1px solid #e2e8f0",
+                          borderRadius: "12px",
+                        }}
+                      >
+                        <h3 style={{ marginTop: 0 }}>Overall Feedback</h3>
                         <p>{result.feedback}</p>
                       </div>
+
+                      {/* Ask AI Button */}
                       <button
                         type="button"
                         onClick={() => {
@@ -1206,292 +1289,293 @@ async function saveStudentAnswer(
                       >
                         💬 Ask AI about this question
                       </button>
+
                       
-{showQuestionAIChat && (
-  <div
-    style={{
-      marginTop: "24px",
-      border: "1px solid #dce3eb",
-      borderRadius: "16px",
-      background: "#ffffff",
-      overflow: "hidden",
-      boxShadow: "0 4px 16px rgba(0,0,0,0.05)",
-    }}
-  >
-    {/* Chat Header */}
-    <div
-      style={{
-        padding: "18px 22px",
-        background: "#f8fafc",
-        borderBottom: "1px solid #e5e7eb",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        <div
-          style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "12px",
-            background: "#e0f2fe",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "23px",
-          }}
-        >
-          🎓
-        </div>
+                      {showQuestionAIChat && (
+                        <div
+                          style={{
+                            marginTop: "24px",
+                            border: "1px solid #dce3eb",
+                            borderRadius: "16px",
+                            background: "#ffffff",
+                            overflow: "hidden",
+                            boxShadow: "0 4px 16px rgba(0,0,0,0.05)",
+                          }}
+                        >
+                          {/* Chat Header */}
+                          <div
+                            style={{
+                              padding: "18px 22px",
+                              background: "#f8fafc",
+                              borderBottom: "1px solid #e5e7eb",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                              <div
+                                style={{
+                                  width: "44px",
+                                  height: "44px",
+                                  borderRadius: "12px",
+                                  background: "#e0f2fe",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontSize: "23px",
+                                }}
+                              >
+                                🎓
+                              </div>
 
-        <div>
-          <h3 style={{ margin: 0, color: "#1e293b", fontSize: "17px" }}>
-            AI Learning Assistant
-          </h3>
-          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "12px" }}>
-            Understanding your exam results
-          </p>
-        </div>
-      </div>
+                              <div>
+                                <h3 style={{ margin: 0, color: "#1e293b", fontSize: "17px" }}>
+                                  AI Learning Assistant
+                                </h3>
+                                <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "12px" }}>
+                                  Understanding your exam results
+                                </p>
+                              </div>
+                            </div>
 
-      <button
-        type="button"
-        onClick={() => setShowQuestionAIChat(false)}
-        style={{
-          border: "1px solid #d1d5db",
-          background: "#ffffff",
-          color: "#475569",
-          borderRadius: "8px",
-          padding: "8px 13px",
-          cursor: "pointer",
-          fontSize: "13px",
-        }}
-      >
-        ✕ Close
-      </button>
-    </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowQuestionAIChat(false)}
+                              style={{
+                                border: "1px solid #d1d5db",
+                                background: "#ffffff",
+                                color: "#475569",
+                                borderRadius: "8px",
+                                padding: "8px 13px",
+                                cursor: "pointer",
+                                fontSize: "13px",
+                              }}
+                            >
+                              ✕ Close
+                            </button>
+                          </div>
 
-    {/* Messages */}
-    <div
-      style={{
-        height: "380px",
-        overflowY: "auto",
-        padding: "22px",
-        background: "#ffffff",
-        display: "flex",
-        flexDirection: "column",
-        gap: "18px",
-      }}
-    >
-      {aiChatMessages.length === 0 && (
-        <div
-          style={{
-            margin: "auto",
-            textAlign: "center",
-            maxWidth: "360px",
-            color: "#64748b",
-          }}
-        >
-          <div style={{ fontSize: "38px", marginBottom: "12px" }}>💬</div>
-          <h3 style={{ color: "#334155", marginBottom: "8px" }}>
-            Let's understand your results
-          </h3>
-          <p style={{ fontSize: "13px", lineHeight: 1.6 }}>
-            Ask me why you received certain marks, what you missed,
-            or how you can improve your answers.
-          </p>
-        </div>
-      )}
+                          {/* Messages */}
+                          <div
+                            style={{
+                              height: "380px",
+                              overflowY: "auto",
+                              padding: "22px",
+                              background: "#ffffff",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "18px",
+                            }}
+                          >
+                            {aiChatMessages.length === 0 && (
+                              <div
+                                style={{
+                                  margin: "auto",
+                                  textAlign: "center",
+                                  maxWidth: "360px",
+                                  color: "#64748b",
+                                }}
+                              >
+                                <div style={{ fontSize: "38px", marginBottom: "12px" }}>💬</div>
+                                <h3 style={{ color: "#334155", marginBottom: "8px" }}>
+                                  Let's understand your results
+                                </h3>
+                                <p style={{ fontSize: "13px", lineHeight: 1.6 }}>
+                                  Ask me why you received certain marks, what you missed,
+                                  or how you can improve your answers.
+                                </p>
+                              </div>
+                            )}
 
-      {aiChatMessages.map((message, index) => (
-        <div
-          key={index}
-          style={{
-            display: "flex",
-            justifyContent:
-              message.role === "user" ? "flex-end" : "flex-start",
-          }}
-        >
-          <div
-            style={{
-              maxWidth: "85%",
-              display: "flex",
-              flexDirection: "column",
-              gap: "6px",
-            }}
-          >
-            <span
-              style={{
-                fontSize: "11px",
-                fontWeight: "600",
-                color: "#64748b",
-                textAlign: message.role === "user" ? "right" : "left",
-              }}
-            >
-              {message.role === "user" ? "YOU" : "AI ASSISTANT"}
-            </span>
+                            {aiChatMessages.map((message, index) => (
+                              <div
+                                key={index}
+                                style={{
+                                  display: "flex",
+                                  justifyContent:
+                                    message.role === "user" ? "flex-end" : "flex-start",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    maxWidth: "85%",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "6px",
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: "11px",
+                                      fontWeight: "600",
+                                      color: "#64748b",
+                                      textAlign: message.role === "user" ? "right" : "left",
+                                    }}
+                                  >
+                                    {message.role === "user" ? "YOU" : "AI ASSISTANT"}
+                                  </span>
 
-            <div
-              style={{
-                padding: "13px 17px",
-                borderRadius:
-                  message.role === "user"
-                    ? "16px 16px 4px 16px"
-                    : "16px 16px 16px 4px",
-                background:
-                  message.role === "user" ? "#e0f2fe" : "#f1f5f9",
-                color: "#1e293b",
-                fontSize: "14px",
-                lineHeight: 1.7,
-                overflowWrap: "anywhere",
-              }}
-            >
-              <ReactMarkdown
-                components={{
-                  p: ({ children }) => (
-                    <p style={{ margin: "0 0 10px" }}>{children}</p>
-                  ),
-                  ul: ({ children }) => (
-                    <ul style={{ paddingLeft: "22px", margin: "8px 0" }}>
-                      {children}
-                    </ul>
-                  ),
-                  ol: ({ children }) => (
-                    <ol style={{ paddingLeft: "22px", margin: "8px 0" }}>
-                      {children}
-                    </ol>
-                  ),
-                  li: ({ children }) => (
-                    <li style={{ marginBottom: "5px" }}>{children}</li>
-                  ),
-                }}
-              >
-                {message.content}
-              </ReactMarkdown>
-            </div>
-          </div>
-        </div>
-      ))}
+                                  <div
+                                    style={{
+                                      padding: "13px 17px",
+                                      borderRadius:
+                                        message.role === "user"
+                                          ? "16px 16px 4px 16px"
+                                          : "16px 16px 16px 4px",
+                                      background:
+                                        message.role === "user" ? "#e0f2fe" : "#f1f5f9",
+                                      color: "#1e293b",
+                                      fontSize: "14px",
+                                      lineHeight: 1.7,
+                                      overflowWrap: "anywhere",
+                                    }}
+                                  >
+                                    <ReactMarkdown
+                                      components={{
+                                        p: ({ children }) => (
+                                          <p style={{ margin: "0 0 10px" }}>{children}</p>
+                                        ),
+                                        ul: ({ children }) => (
+                                          <ul style={{ paddingLeft: "22px", margin: "8px 0" }}>
+                                            {children}
+                                          </ul>
+                                        ),
+                                        ol: ({ children }) => (
+                                          <ol style={{ paddingLeft: "22px", margin: "8px 0" }}>
+                                            {children}
+                                          </ol>
+                                        ),
+                                        li: ({ children }) => (
+                                          <li style={{ marginBottom: "5px" }}>{children}</li>
+                                        ),
+                                      }}
+                                    >
+                                      {message.content}
+                                    </ReactMarkdown>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
 
-      {/* AI Loading Indicator */}
-      {aiChatLoading && (
-        <div style={{ display: "flex", justifyContent: "flex-start" }}>
-          <div
-            style={{
-              padding: "12px 16px",
-              borderRadius: "14px",
-              background: "#f1f5f9",
-              color: "#64748b",
-              fontSize: "13px",
-            }}
-          >
-            AI is thinking...
-          </div>
-        </div>
-      )}
+                            {/* AI Loading Indicator */}
+                            {aiChatLoading && (
+                              <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                                <div
+                                  style={{
+                                    padding: "12px 16px",
+                                    borderRadius: "14px",
+                                    background: "#f1f5f9",
+                                    color: "#64748b",
+                                    fontSize: "13px",
+                                  }}
+                                >
+                                  AI is thinking...
+                                </div>
+                              </div>
+                            )}
 
-      <div ref={aiChatBottomRef} />
-    </div>
+                            <div ref={aiChatBottomRef} />
+                          </div>
 
-    {/* Error */}
-    {aiChatError && (
-      <div
-        style={{
-          margin: "0 20px 12px",
-          padding: "10px 14px",
-          background: "#fef2f2",
-          border: "1px solid #fecaca",
-          borderRadius: "8px",
-          color: "#b91c1c",
-          fontSize: "13px",
-        }}
-      >
-        {aiChatError}
-      </div>
-    )}
+                          {/* Error */}
+                          {aiChatError && (
+                            <div
+                              style={{
+                                margin: "0 20px 12px",
+                                padding: "10px 14px",
+                                background: "#fef2f2",
+                                border: "1px solid #fecaca",
+                                borderRadius: "8px",
+                                color: "#b91c1c",
+                                fontSize: "13px",
+                              }}
+                            >
+                              {aiChatError}
+                            </div>
+                          )}
 
-    {/* Message Composer */}
-    <div
-      style={{
-        padding: "16px 20px",
-        borderTop: "1px solid #e5e7eb",
-        background: "#f8fafc",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-end",
-          gap: "10px",
-        }}
-      >
-        <textarea
-          value={aiChatInput}
-          onChange={(e) => setAiChatInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              sendAIChatMessage();
-            }
-          }}
-          placeholder="Ask a question about your marks..."
-          rows={2}
-          disabled={aiChatLoading}
-          style={{
-            flex: 1,
-            resize: "vertical",
-            padding: "13px 15px",
-            borderRadius: "10px",
-            border: "1px solid #cbd5e1",
-            background: "#ffffff",
-            fontSize: "14px",
-            lineHeight: 1.5,
-            outline: "none",
-            boxSizing: "border-box",
-            fontFamily: "inherit",
-          }}
-        />
+                          {/* Message Composer */}
+                          <div
+                            style={{
+                              padding: "16px 20px",
+                              borderTop: "1px solid #e5e7eb",
+                              background: "#f8fafc",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "flex-end",
+                                gap: "10px",
+                              }}
+                            >
+                              <textarea
+                                value={aiChatInput}
+                                onChange={(e) => setAiChatInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    sendAIChatMessage();
+                                  }
+                                }}
+                                placeholder="Ask a question about your marks..."
+                                rows={2}
+                                disabled={aiChatLoading}
+                                style={{
+                                  flex: 1,
+                                  resize: "vertical",
+                                  padding: "13px 15px",
+                                  borderRadius: "10px",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#ffffff",
+                                  fontSize: "14px",
+                                  lineHeight: 1.5,
+                                  outline: "none",
+                                  boxSizing: "border-box",
+                                  fontFamily: "inherit",
+                                }}
+                              />
 
-        <button
-          type="button"
-          onClick={sendAIChatMessage}
-          disabled={!aiChatInput.trim() || aiChatLoading}
-          style={{
-            minWidth: "95px",
-            height: "45px",
-            border: "none",
-            borderRadius: "10px",
-            background: "#285b71",
-            color: "#ffffff",
-            fontWeight: "600",
-            fontSize: "13px",
-            cursor:
-              !aiChatInput.trim() || aiChatLoading
-                ? "not-allowed"
-                : "pointer",
-            opacity:
-              !aiChatInput.trim() || aiChatLoading ? 0.55 : 1,
-          }}
-        >
-          {aiChatLoading ? "Thinking..." : "➤ Send"}
-        </button>
-      </div>
+                              <button
+                                type="button"
+                                onClick={sendAIChatMessage}
+                                disabled={!aiChatInput.trim() || aiChatLoading}
+                                style={{
+                                  minWidth: "95px",
+                                  height: "45px",
+                                  border: "none",
+                                  borderRadius: "10px",
+                                  background: "#285b71",
+                                  color: "#ffffff",
+                                  fontWeight: "600",
+                                  fontSize: "13px",
+                                  cursor:
+                                    !aiChatInput.trim() || aiChatLoading
+                                      ? "not-allowed"
+                                      : "pointer",
+                                  opacity:
+                                    !aiChatInput.trim() || aiChatLoading ? 0.55 : 1,
+                                }}
+                              >
+                                {aiChatLoading ? "Thinking..." : "➤ Send"}
+                              </button>
+                            </div>
 
-      <p
-        style={{
-          margin: "9px 0 0",
-          fontSize: "11px",
-          color: "#94a3b8",
-          textAlign: "center",
-        }}
-      >
-        AI explanations are based on your saved exam evaluation.
-        Press Enter to send · Shift + Enter for a new line
-      </p>
-    </div>
-  </div>
-)}
+                            <p
+                              style={{
+                                margin: "9px 0 0",
+                                fontSize: "11px",
+                                color: "#94a3b8",
+                                textAlign: "center",
+                              }}
+                            >
+                              AI explanations are based on your saved exam evaluation.
+                              Press Enter to send · Shift + Enter for a new line
+                            </p>
+                          </div>
+                        </div>
+                      )}
 
                     </>
                   )}
